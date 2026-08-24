@@ -2,6 +2,16 @@
 
 一款适合在桌面空闲时快速刷题的轻量级软件。当前版本为 macOS 原生应用，使用 Swift、AppKit、PDFKit 和 Carbon 开发，无第三方依赖，可完全离线运行。
 
+**[下载轻刷题 0.1.0 macOS DMG 安装包](Releases/轻刷题-0.1.0-macOS.dmg)**
+
+## 安装
+
+1. 下载并打开 DMG。
+2. 将“轻刷题.app”拖入“Applications”文件夹。
+3. 在“应用程序”中启动轻刷题。
+
+当前安装包使用本地签名。如首次启动时 macOS 提示无法验证开发者，请在 Finder 中右键应用并选择“打开”。
+
 ## 特点
 
 - 管理页与悬浮答题页分离，答题时可只保留精简面板。
@@ -28,6 +38,13 @@
 chmod +x build.sh
 ./build.sh
 open "dist/轻刷题.app"
+```
+
+生成可分发的 DMG：
+
+```bash
+chmod +x package_dmg.sh
+./package_dmg.sh
 ```
 
 数据默认保存在 `~/Library/Application Support/QuickQuiz/`，不会上传到服务器。
@@ -58,7 +75,9 @@ dist/轻刷题.app/Contents/MacOS/QuickQuiz --self-test
 ```text
 Sources/QuickQuiz/   macOS 应用源码
 Resources/           内置题库、题目 PDF 和答案解析 PDF
+Releases/            可直接下载的 DMG 安装包
 Tools/               题库生成工具
 Info.plist           macOS 应用配置
 build.sh             本地构建脚本
+package_dmg.sh       DMG 打包与校验脚本
 ```
