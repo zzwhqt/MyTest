@@ -180,9 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains(where: { $0.hasPrefix("--ui-test") }) {
             return true
         }
-        if !flag {
-            managerController?.showManager()
-        }
+        managerController?.showManager()
         return true
     }
 }

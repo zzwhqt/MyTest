@@ -2,7 +2,7 @@
 
 一款适合在桌面空闲时快速刷题的轻量级软件。当前版本为 macOS 原生应用，使用 Swift、AppKit、PDFKit 和 Carbon 开发，无第三方依赖，可完全离线运行。
 
-**[下载轻刷题 0.1.1 macOS DMG 安装包](Releases/轻刷题-0.1.1-macOS.dmg)**
+**[下载轻刷题 0.1.2 macOS DMG 安装包](Releases/轻刷题-0.1.2-macOS.dmg)**
 
 ## 安装
 

@@ -101,9 +101,9 @@ final class ManagerWindowController: NSWindowController {
         pdfDropZone.onPDFsDropped = { [weak self] urls in
             self?.handleDroppedPDFs(urls)
         }
+        stack.addArrangedSubview(pdfDropZone)
         pdfDropZone.heightAnchor.constraint(equalToConstant: 68).isActive = true
         pdfDropZone.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
-        stack.addArrangedSubview(pdfDropZone)
 
         stack.addArrangedSubview(separator())
 
