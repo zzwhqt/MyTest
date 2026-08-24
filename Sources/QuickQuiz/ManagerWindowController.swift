@@ -12,6 +12,7 @@ final class ManagerWindowController: NSWindowController {
     private let bankPopup = NSPopUpButton()
     private let questionPathLabel = NSTextField(labelWithString: "使用当前题目 PDF")
     private let answerPathLabel = NSTextField(labelWithString: "使用当前答案解析 PDF")
+    private let pdfDropZone = PDFDropZoneView()
     private let selectedCountLabel = NSTextField(labelWithString: "")
     private let scoreSummaryLabel = NSTextField(labelWithString: "")
     private var moduleAccuracyLabels: [NSTextField] = []
@@ -97,6 +98,12 @@ final class ManagerWindowController: NSWindowController {
         stack.addArrangedSubview(row([chooseAnswer, answerPathLabel, importButton]))
         questionPathLabel.lineBreakMode = .byTruncatingMiddle
         answerPathLabel.lineBreakMode = .byTruncatingMiddle
+        pdfDropZone.onPDFsDropped = { [weak self] urls in
+            self?.handleDroppedPDFs(urls)
+        }
+        pdfDropZone.heightAnchor.constraint(equalToConstant: 68).isActive = true
+        pdfDropZone.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
+        stack.addArrangedSubview(pdfDropZone)
 
         stack.addArrangedSubview(separator())
 
@@ -399,6 +406,48 @@ final class ManagerWindowController: NSWindowController {
             statusLabel.stringValue = "导入失败：\(error.localizedDescription)"
             showAlert(title: "导入失败", message: error.localizedDescription)
         }
+    }
+
+    private func handleDroppedPDFs(_ urls: [URL]) {
+        let pdfs = urls.filter { $0.pathExtension.lowercased() == "pdf" }
+        guard !pdfs.isEmpty else { return }
+
+        if pdfs.count >= 2 {
+            let answer = pdfs.first(where: isLikelyAnswerPDF) ?? pdfs[1]
+            let question = pdfs.first(where: { $0 != answer && !isLikelyAnswerPDF($0) })
+                ?? pdfs.first(where: { $0 != answer })
+                ?? pdfs[0]
+            questionPDFURL = question
+            answerPDFURL = answer
+        } else if let url = pdfs.first {
+            if isLikelyAnswerPDF(url) {
+                answerPDFURL = url
+            } else if isLikelyQuestionPDF(url) || questionPDFURL == nil {
+                questionPDFURL = url
+            } else {
+                answerPDFURL = url
+            }
+        }
+
+        questionPathLabel.stringValue = questionPDFURL?.lastPathComponent ?? "请继续拖入题目 PDF"
+        answerPathLabel.stringValue = answerPDFURL?.lastPathComponent ?? "请继续拖入答案解析 PDF"
+
+        if questionPDFURL != nil, answerPDFURL != nil {
+            statusLabel.stringValue = "已识别两个 PDF，正在自动导入…"
+            importPDFs()
+        } else {
+            statusLabel.stringValue = "已接收 1 个 PDF，请继续拖入另一个文件。"
+        }
+    }
+
+    private func isLikelyAnswerPDF(_ url: URL) -> Bool {
+        let name = url.deletingPathExtension().lastPathComponent.lowercased()
+        return ["答案", "解析", "answer", "solution", "explanation"].contains { name.contains($0) }
+    }
+
+    private func isLikelyQuestionPDF(_ url: URL) -> Bool {
+        let name = url.deletingPathExtension().lastPathComponent.lowercased()
+        return ["真题", "题目", "试卷", "question", "test", "paper"].contains { name.contains($0) }
     }
 
     @objc private func startQuiz() {
