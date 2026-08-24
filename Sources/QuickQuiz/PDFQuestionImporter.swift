@@ -43,7 +43,7 @@ enum PDFQuestionImporter {
                 answer: answer.answer,
                 explanation: answer.explanation,
                 sourcePage: block.pageIndex,
-                hasVisual: visualPages.contains(block.pageIndex + 1)
+                hasVisual: visualPages.contains(block.pageIndex + 1) || isLikelyVisual(stem: answer.question.stem, options: answer.question.options)
             )
         }
 
@@ -54,16 +54,76 @@ enum PDFQuestionImporter {
         )
     }
 
+    static func importBank(combinedURL: URL) throws -> QuestionBank {
+        guard let document = PDFDocument(url: combinedURL) else {
+            throw QuizImportError.unreadablePDF(combinedURL.lastPathComponent)
+        }
+        let blocks = sequentialBlocks(from: document)
+        guard blocks.count == 100 else {
+            throw QuizImportError.invalidQuestionCount(blocks.count)
+        }
+
+        var questions: [QuizQuestion] = []
+        var missingAnswers: [Int] = []
+        for block in blocks {
+            let parsedAnswer = parseAnswer(from: block.body)
+            guard !parsedAnswer.answer.isEmpty else {
+                missingAnswers.append(block.number)
+                continue
+            }
+            let questionText = block.body.components(separatedBy: "【答案】").first ?? block.body
+            let parsedQuestion = parseQuestion(from: questionText)
+            questions.append(QuizQuestion(
+                id: block.number,
+                stem: parsedQuestion.stem,
+                options: parsedQuestion.options,
+                answer: parsedAnswer.answer,
+                explanation: parsedAnswer.explanation,
+                sourcePage: block.pageIndex,
+                hasVisual: isLikelyVisual(stem: parsedQuestion.stem, options: parsedQuestion.options)
+            ))
+        }
+        guard missingAnswers.isEmpty else { throw QuizImportError.missingAnswers(missingAnswers) }
+
+        return QuestionBank(
+            title: inferredTitle(document: document, url: combinedURL),
+            importedAt: Date(),
+            questions: questions
+        )
+    }
+
     static func selfTest(questionURL: URL, answerURL: URL) throws -> String {
         let bank = try importBank(questionURL: questionURL, answerURL: answerURL)
+        return validationSummary(for: bank)
+    }
+
+    static func selfTest(combinedURL: URL) throws -> String {
+        let bank = try importBank(combinedURL: combinedURL)
+        return validationSummary(for: bank)
+    }
+
+    private static func validationSummary(for bank: QuestionBank) -> String {
         let invalidOptions = bank.questions.filter { $0.options.count != 4 }.map(\.id)
         let invalidAnswers = bank.questions.filter { !["A", "B", "C", "D"].contains($0.answer) }.map(\.id)
         let emptyStems = bank.questions.filter { $0.stem.count < 3 }.map(\.id)
         guard invalidOptions.isEmpty, invalidAnswers.isEmpty, emptyStems.isEmpty else {
             return "FAIL options=\(invalidOptions) answers=\(invalidAnswers) stems=\(emptyStems)"
         }
-        let fallbackAnswers = bank.questions.filter { [53, 55].contains($0.id) }.map { "\($0.id)=\($0.answer)" }
-        return "PASS questions=\(bank.questions.count) answers=100 fallback=[\(fallbackAnswers.joined(separator: ","))] visual=\(bank.questions.filter(\.hasVisual).count)"
+        return "PASS title=\(bank.title) questions=\(bank.questions.count) answers=\(bank.questions.filter { !$0.answer.isEmpty }.count) visual=\(bank.questions.filter(\.hasVisual).count)"
+    }
+
+    private static func inferredTitle(document: PDFDocument, url: URL) -> String {
+        let firstPage = document.page(at: 0)?.string ?? ""
+        if firstPage.contains("广东"), let year = firstCapture(pattern: #"(20\d{2})\s*年"#, in: firstPage) {
+            let level = firstPage.contains("县级") ? "（县级）" : ""
+            return "\(year) 广东省公务员行测\(level)"
+        }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
+    private static func isLikelyVisual(stem: String, options: [String]) -> Bool {
+        if options == ["A", "B", "C", "D"] { return true }
+        return ["如图", "下图", "图表", "图示", "所给的四个选项中"].contains { stem.contains($0) }
     }
 
     private static func sequentialBlocks(from document: PDFDocument) -> [RawBlock] {

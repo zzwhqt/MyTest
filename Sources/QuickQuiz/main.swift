@@ -28,7 +28,6 @@ if CommandLine.arguments.contains("--logic-test") {
 
 if let exportIndex = CommandLine.arguments.firstIndex(of: "--export-bank"),
    CommandLine.arguments.count > exportIndex + 3 {
-    _ = NSApplication.shared
     let questionURL = URL(fileURLWithPath: CommandLine.arguments[exportIndex + 1])
     let answerURL = URL(fileURLWithPath: CommandLine.arguments[exportIndex + 2])
     let outputURL = URL(fileURLWithPath: CommandLine.arguments[exportIndex + 3])
@@ -45,7 +44,6 @@ if let exportIndex = CommandLine.arguments.firstIndex(of: "--export-bank"),
 }
 
 if CommandLine.arguments.contains("--self-test") {
-    _ = NSApplication.shared
     let args = CommandLine.arguments
     let questionURL: URL
     let answerURL: URL
@@ -61,6 +59,19 @@ if CommandLine.arguments.contains("--self-test") {
     }
     do {
         fputs(try PDFQuestionImporter.selfTest(questionURL: questionURL, answerURL: answerURL) + "\n", stdout)
+        fflush(stdout)
+        exit(0)
+    } catch {
+        fputs("FAIL \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
+if let index = CommandLine.arguments.firstIndex(of: "--self-test-single"),
+   CommandLine.arguments.count > index + 1 {
+    let combinedURL = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+    do {
+        fputs(try PDFQuestionImporter.selfTest(combinedURL: combinedURL) + "\n", stdout)
         fflush(stdout)
         exit(0)
     } catch {

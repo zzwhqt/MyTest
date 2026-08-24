@@ -3,8 +3,8 @@ import AppKit
 final class PDFDropZoneView: NSView {
     var onPDFsDropped: (([URL]) -> Void)?
 
-    private let titleLabel = NSTextField(labelWithString: "将题目 PDF 和答案解析 PDF 拖到这里")
-    private let detailLabel = NSTextField(labelWithString: "可一次拖入两个文件，也可分两次拖入")
+    private let titleLabel = NSTextField(labelWithString: "将包含题目、答案和解析的 PDF 拖到这里")
+    private let detailLabel = NSTextField(labelWithString: "只需一个文件，拖入后自动识别并导入")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

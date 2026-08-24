@@ -5,13 +5,11 @@ import UniformTypeIdentifiers
 final class ManagerWindowController: NSWindowController {
     private let store: QuestionStore
     private let onStart: (QuizConfiguration) -> Void
-    private var questionPDFURL: URL?
-    private var answerPDFURL: URL?
+    private var combinedPDFURL: URL?
     private var questionButtons: [Int: NSButton] = [:]
 
     private let bankPopup = NSPopUpButton()
-    private let questionPathLabel = NSTextField(labelWithString: "使用当前题目 PDF")
-    private let answerPathLabel = NSTextField(labelWithString: "使用当前答案解析 PDF")
+    private let pdfPathLabel = NSTextField(labelWithString: "请选择包含题目、答案和解析的 PDF")
     private let pdfDropZone = PDFDropZoneView()
     private let selectedCountLabel = NSTextField(labelWithString: "")
     private let scoreSummaryLabel = NSTextField(labelWithString: "")
@@ -90,14 +88,11 @@ final class ManagerWindowController: NSWindowController {
         scoreSummaryLabel.textColor = .secondaryLabelColor
         stack.addArrangedSubview(labeledRow("整卷成绩", [scoreSummaryLabel]))
 
-        let chooseQuestion = NSButton(title: "选择题目 PDF…", target: self, action: #selector(selectQuestionPDF))
-        let chooseAnswer = NSButton(title: "选择答案 PDF…", target: self, action: #selector(selectAnswerPDF))
-        let importButton = NSButton(title: "导入并识别", target: self, action: #selector(importPDFs))
+        let choosePDF = NSButton(title: "选择合订 PDF…", target: self, action: #selector(selectCombinedPDF))
+        let importButton = NSButton(title: "导入并识别", target: self, action: #selector(importCombinedPDF))
         importButton.bezelStyle = .rounded
-        stack.addArrangedSubview(row([chooseQuestion, questionPathLabel]))
-        stack.addArrangedSubview(row([chooseAnswer, answerPathLabel, importButton]))
-        questionPathLabel.lineBreakMode = .byTruncatingMiddle
-        answerPathLabel.lineBreakMode = .byTruncatingMiddle
+        stack.addArrangedSubview(row([choosePDF, pdfPathLabel, importButton]))
+        pdfPathLabel.lineBreakMode = .byTruncatingMiddle
         pdfDropZone.onPDFsDropped = { [weak self] urls in
             self?.handleDroppedPDFs(urls)
         }
@@ -365,17 +360,10 @@ final class ManagerWindowController: NSWindowController {
         refreshWrongQuestions()
     }
 
-    @objc private func selectQuestionPDF() {
-        choosePDF(title: "选择题目 PDF") { [weak self] url in
-            self?.questionPDFURL = url
-            self?.questionPathLabel.stringValue = url.lastPathComponent
-        }
-    }
-
-    @objc private func selectAnswerPDF() {
-        choosePDF(title: "选择答案解析 PDF") { [weak self] url in
-            self?.answerPDFURL = url
-            self?.answerPathLabel.stringValue = url.lastPathComponent
+    @objc private func selectCombinedPDF() {
+        choosePDF(title: "选择包含题目、答案和解析的 PDF") { [weak self] url in
+            self?.combinedPDFURL = url
+            self?.pdfPathLabel.stringValue = url.lastPathComponent
         }
     }
 
@@ -388,15 +376,15 @@ final class ManagerWindowController: NSWindowController {
         completion(url)
     }
 
-    @objc private func importPDFs() {
-        guard let questionPDFURL, let answerPDFURL else {
-            showAlert(title: "请选择两个文件", message: "需要分别选择题目 PDF 和答案解析 PDF。")
+    @objc private func importCombinedPDF() {
+        guard let combinedPDFURL else {
+            showAlert(title: "请选择 PDF", message: "请选择一个同时包含题目、答案和解析的 PDF。")
             return
         }
         statusLabel.stringValue = "正在识别 PDF，请稍候…"
         window?.displayIfNeeded()
         do {
-            try store.importPDFs(questionURL: questionPDFURL, answerURL: answerPDFURL)
+            try store.importPDF(url: combinedPDFURL)
             bankPopup.removeAllItems()
             bankPopup.addItem(withTitle: store.bank?.title ?? "已导入题库")
             statusLabel.stringValue = "导入成功：\(store.bank?.questions.count ?? 0) 道题。"
@@ -412,42 +400,10 @@ final class ManagerWindowController: NSWindowController {
         let pdfs = urls.filter { $0.pathExtension.lowercased() == "pdf" }
         guard !pdfs.isEmpty else { return }
 
-        if pdfs.count >= 2 {
-            let answer = pdfs.first(where: isLikelyAnswerPDF) ?? pdfs[1]
-            let question = pdfs.first(where: { $0 != answer && !isLikelyAnswerPDF($0) })
-                ?? pdfs.first(where: { $0 != answer })
-                ?? pdfs[0]
-            questionPDFURL = question
-            answerPDFURL = answer
-        } else if let url = pdfs.first {
-            if isLikelyAnswerPDF(url) {
-                answerPDFURL = url
-            } else if isLikelyQuestionPDF(url) || questionPDFURL == nil {
-                questionPDFURL = url
-            } else {
-                answerPDFURL = url
-            }
-        }
-
-        questionPathLabel.stringValue = questionPDFURL?.lastPathComponent ?? "请继续拖入题目 PDF"
-        answerPathLabel.stringValue = answerPDFURL?.lastPathComponent ?? "请继续拖入答案解析 PDF"
-
-        if questionPDFURL != nil, answerPDFURL != nil {
-            statusLabel.stringValue = "已识别两个 PDF，正在自动导入…"
-            importPDFs()
-        } else {
-            statusLabel.stringValue = "已接收 1 个 PDF，请继续拖入另一个文件。"
-        }
-    }
-
-    private func isLikelyAnswerPDF(_ url: URL) -> Bool {
-        let name = url.deletingPathExtension().lastPathComponent.lowercased()
-        return ["答案", "解析", "answer", "solution", "explanation"].contains { name.contains($0) }
-    }
-
-    private func isLikelyQuestionPDF(_ url: URL) -> Bool {
-        let name = url.deletingPathExtension().lastPathComponent.lowercased()
-        return ["真题", "题目", "试卷", "question", "test", "paper"].contains { name.contains($0) }
+        combinedPDFURL = pdfs[0]
+        pdfPathLabel.stringValue = pdfs[0].lastPathComponent
+        statusLabel.stringValue = "已接收 PDF，正在自动识别并导入…"
+        importCombinedPDF()
     }
 
     @objc private func startQuiz() {

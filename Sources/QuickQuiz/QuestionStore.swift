@@ -24,6 +24,7 @@ final class QuestionStore {
     private var moduleStatisticsURL: URL { appSupportURL.appendingPathComponent("module-first-attempts.json") }
     private var customQuestionPDFURL: URL { appSupportURL.appendingPathComponent("custom-question.pdf") }
     private var customAnswerPDFURL: URL { appSupportURL.appendingPathComponent("custom-answer.pdf") }
+    private var customCombinedPDFURL: URL { appSupportURL.appendingPathComponent("custom-combined.pdf") }
 
     func load() throws {
         try fm.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
@@ -35,6 +36,18 @@ final class QuestionStore {
         let resources = Bundle.main.resourceURL
         let bundledQuestionURL = resources?.appendingPathComponent("2020广东县级真题.pdf")
         let bundledAnswerURL = resources?.appendingPathComponent("2020广东县级答案解析.pdf")
+
+        if UserDefaults.standard.bool(forKey: "hasCustomBank"),
+           fm.fileExists(atPath: bankCacheURL.path),
+           fm.fileExists(atPath: customCombinedPDFURL.path),
+           let data = try? Data(contentsOf: bankCacheURL),
+           let cached = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
+           cached.questions.count == 100 {
+            bank = cached
+            questionPDFURL = customCombinedPDFURL
+            answerPDFURL = customCombinedPDFURL
+            return
+        }
 
         if UserDefaults.standard.bool(forKey: "hasCustomBank"),
            fm.fileExists(atPath: bankCacheURL.path),
@@ -79,6 +92,21 @@ final class QuestionStore {
         bank = imported
         questionPDFURL = customQuestionPDFURL
         answerPDFURL = customAnswerPDFURL
+        let data = try JSONEncoder.pretty.encode(imported)
+        try data.write(to: bankCacheURL, options: .atomic)
+        UserDefaults.standard.set(true, forKey: "hasCustomBank")
+    }
+
+    func importPDF(url: URL) throws {
+        let imported = try PDFQuestionImporter.importBank(combinedURL: url)
+        guard imported.questions.count == 100 else {
+            throw QuizImportError.invalidQuestionCount(imported.questions.count)
+        }
+        if fm.fileExists(atPath: customCombinedPDFURL.path) { try fm.removeItem(at: customCombinedPDFURL) }
+        try fm.copyItem(at: url, to: customCombinedPDFURL)
+        bank = imported
+        questionPDFURL = customCombinedPDFURL
+        answerPDFURL = customCombinedPDFURL
         let data = try JSONEncoder.pretty.encode(imported)
         try data.write(to: bankCacheURL, options: .atomic)
         UserDefaults.standard.set(true, forKey: "hasCustomBank")
