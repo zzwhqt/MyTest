@@ -21,6 +21,8 @@ cp "$PROJECT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$PROJECT_DIR/Resources/2020广东县级真题.pdf" "$APP_DIR/Contents/Resources/2020广东县级真题.pdf"
 cp "$PROJECT_DIR/Resources/2020广东县级答案解析.pdf" "$APP_DIR/Contents/Resources/2020广东县级答案解析.pdf"
 cp "$PROJECT_DIR/Resources/BundledQuestionBank.json" "$APP_DIR/Contents/Resources/BundledQuestionBank.json"
+cp "$PROJECT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$PROJECT_DIR/Resources/AppIcon.png" "$APP_DIR/Contents/Resources/AppIcon.png"
 
 codesign --force --deep --sign - "$APP_DIR" >/dev/null
 echo "$APP_DIR"
