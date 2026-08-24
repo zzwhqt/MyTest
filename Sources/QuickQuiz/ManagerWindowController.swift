@@ -11,6 +11,7 @@ final class ManagerWindowController: NSWindowController {
     private let bankPopup = NSPopUpButton()
     private let pdfPathLabel = NSTextField(labelWithString: "请选择包含题目、答案和解析的 PDF")
     private let pdfDropZone = PDFDropZoneView()
+    private let importButton = NSButton(title: "导入并识别", target: nil, action: nil)
     private let selectedCountLabel = NSTextField(labelWithString: "")
     private let scoreSummaryLabel = NSTextField(labelWithString: "")
     private var moduleAccuracyLabels: [NSTextField] = []
@@ -89,7 +90,8 @@ final class ManagerWindowController: NSWindowController {
         stack.addArrangedSubview(labeledRow("整卷成绩", [scoreSummaryLabel]))
 
         let choosePDF = NSButton(title: "选择合订 PDF…", target: self, action: #selector(selectCombinedPDF))
-        let importButton = NSButton(title: "导入并识别", target: self, action: #selector(importCombinedPDF))
+        importButton.target = self
+        importButton.action = #selector(importCombinedPDF)
         importButton.bezelStyle = .rounded
         stack.addArrangedSubview(row([choosePDF, pdfPathLabel, importButton]))
         pdfPathLabel.lineBreakMode = .byTruncatingMiddle
@@ -99,6 +101,9 @@ final class ManagerWindowController: NSWindowController {
         stack.addArrangedSubview(pdfDropZone)
         pdfDropZone.heightAnchor.constraint(equalToConstant: 68).isActive = true
         pdfDropZone.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
+        statusLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(statusLabel)
+        statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
 
         stack.addArrangedSubview(separator())
 
@@ -185,10 +190,6 @@ final class ManagerWindowController: NSWindowController {
         let deleteWrongButton = NSButton(title: "删除选中错题记录", target: self, action: #selector(deleteSelectedWrongQuestion))
         stack.addArrangedSubview(labeledRow("错题管理", [wrongQuestionPopup, wrongCountLabel, deleteWrongButton]))
         refreshWrongQuestions()
-
-        statusLabel.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(statusLabel)
-        statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
 
         let startButton = NSButton(title: "开始 / 更新答题页", target: self, action: #selector(startQuiz))
         startButton.bezelStyle = .rounded
@@ -382,16 +383,29 @@ final class ManagerWindowController: NSWindowController {
             return
         }
         statusLabel.stringValue = "正在识别 PDF，请稍候…"
+        statusLabel.textColor = .secondaryLabelColor
+        importButton.isEnabled = false
+        importButton.title = "识别中…"
+        defer {
+            importButton.isEnabled = true
+            importButton.title = "导入并识别"
+        }
         window?.displayIfNeeded()
         do {
             try store.importPDF(url: combinedPDFURL)
             bankPopup.removeAllItems()
             bankPopup.addItem(withTitle: store.bank?.title ?? "已导入题库")
             statusLabel.stringValue = "导入成功：\(store.bank?.questions.count ?? 0) 道题。"
+            statusLabel.textColor = .systemGreen
             refreshScoreSummary()
             refreshModuleStatistics()
+            showAlert(
+                title: "导入成功",
+                message: "已识别题库“\(store.bank?.title ?? "未命名题库")”，共 \(store.bank?.questions.count ?? 0) 道题。"
+            )
         } catch {
             statusLabel.stringValue = "导入失败：\(error.localizedDescription)"
+            statusLabel.textColor = .systemRed
             showAlert(title: "导入失败", message: error.localizedDescription)
         }
     }
