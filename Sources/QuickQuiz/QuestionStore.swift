@@ -7,6 +7,7 @@ final class QuestionStore {
     private(set) var bank: QuestionBank?
     private(set) var questionPDFURL: URL?
     private(set) var answerPDFURL: URL?
+    private(set) var activeBankID = "bundled"
     var progress = QuizProgress()
     private var wholePaperSessions: [String: WholePaperSession] = [:]
     private var paperScores: [String: PaperScoreRecord] = [:]
@@ -18,6 +19,7 @@ final class QuestionStore {
         return base.appendingPathComponent("QuickQuiz", isDirectory: true)
     }()
     private var bankCacheURL: URL { appSupportURL.appendingPathComponent("question-bank.json") }
+    private var customBankCacheURL: URL { appSupportURL.appendingPathComponent("custom-question-bank.json") }
     private var progressURL: URL { appSupportURL.appendingPathComponent("progress.json") }
     private var wholePaperSessionsURL: URL { appSupportURL.appendingPathComponent("whole-paper-sessions.json") }
     private var paperScoresURL: URL { appSupportURL.appendingPathComponent("paper-scores.json") }
@@ -33,51 +35,74 @@ final class QuestionStore {
         loadPaperScores()
         loadModuleStatistics()
 
-        let resources = Bundle.main.resourceURL
-        let bundledQuestionURL = resources?.appendingPathComponent("2020广东县级真题.pdf")
-        let bundledAnswerURL = resources?.appendingPathComponent("2020广东县级答案解析.pdf")
-
         if UserDefaults.standard.bool(forKey: "hasCustomBank"),
-           fm.fileExists(atPath: bankCacheURL.path),
-           fm.fileExists(atPath: customCombinedPDFURL.path),
-           let data = try? Data(contentsOf: bankCacheURL),
-           let cached = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
-           cached.questions.count == 100 {
-            bank = cached
-            questionPDFURL = customCombinedPDFURL
-            answerPDFURL = customCombinedPDFURL
-            return
+           !fm.fileExists(atPath: customBankCacheURL.path),
+           fm.fileExists(atPath: bankCacheURL.path) {
+            try? fm.copyItem(at: bankCacheURL, to: customBankCacheURL)
         }
 
-        if UserDefaults.standard.bool(forKey: "hasCustomBank"),
-           fm.fileExists(atPath: bankCacheURL.path),
-           fm.fileExists(atPath: customQuestionPDFURL.path),
-           fm.fileExists(atPath: customAnswerPDFURL.path),
-           let data = try? Data(contentsOf: bankCacheURL),
-           let cached = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
-           cached.questions.count == 100 {
-            bank = cached
-            questionPDFURL = customQuestionPDFURL
-            answerPDFURL = customAnswerPDFURL
-            return
+        let preferred = UserDefaults.standard.string(forKey: "activeBankID")
+            ?? (UserDefaults.standard.bool(forKey: "hasCustomBank") ? "custom" : "bundled")
+        if preferred == "custom", availableBanks().contains(where: { $0.id == "custom" }) {
+            try activateBank(id: "custom")
+        } else {
+            try activateBank(id: "bundled")
         }
+    }
 
-        questionPDFURL = bundledQuestionURL
-        answerPDFURL = bundledAnswerURL
+    func availableBanks() -> [(id: String, title: String)] {
+        var result: [(String, String)] = []
+        if let bundled = readBundledBank() { result.append(("bundled", bundled.title)) }
+        if let custom = readCustomBank(), customPDFURLs() != nil { result.append(("custom", custom.title)) }
+        return result
+    }
 
-        if let bundledURL = resources?.appendingPathComponent("BundledQuestionBank.json"),
-           let data = try? Data(contentsOf: bundledURL),
-           let bundled = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
-           bundled.questions.count == 100 {
+    func activateBank(id: String) throws {
+        switch id {
+        case "custom":
+            guard let custom = readCustomBank(), let urls = customPDFURLs() else {
+                throw QuizImportError.missingPDF
+            }
+            bank = custom
+            questionPDFURL = urls.question
+            answerPDFURL = urls.answer
+            activeBankID = "custom"
+        default:
+            guard let bundled = readBundledBank() else { throw QuizImportError.invalidQuestionCount(0) }
             bank = bundled
+            questionPDFURL = Bundle.main.resourceURL?.appendingPathComponent("2020广东县级真题.pdf")
+            answerPDFURL = Bundle.main.resourceURL?.appendingPathComponent("2020广东县级答案解析.pdf")
+            activeBankID = "bundled"
+        }
+        if let bank, let data = try? JSONEncoder.pretty.encode(bank) {
             try? data.write(to: bankCacheURL, options: .atomic)
-            return
         }
+        UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
+    }
 
-        guard let questionPDFURL, let answerPDFURL else {
-            throw QuizImportError.missingPDF
+    private func readBundledBank() -> QuestionBank? {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("BundledQuestionBank.json"),
+              let data = try? Data(contentsOf: url),
+              let value = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
+              value.questions.count == 100 else { return nil }
+        return value
+    }
+
+    private func readCustomBank() -> QuestionBank? {
+        guard let data = try? Data(contentsOf: customBankCacheURL),
+              let value = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
+              value.questions.count == 100 else { return nil }
+        return value
+    }
+
+    private func customPDFURLs() -> (question: URL, answer: URL)? {
+        if fm.fileExists(atPath: customCombinedPDFURL.path) {
+            return (customCombinedPDFURL, customCombinedPDFURL)
         }
-        try importPDFs(questionURL: questionPDFURL, answerURL: answerPDFURL)
+        if fm.fileExists(atPath: customQuestionPDFURL.path), fm.fileExists(atPath: customAnswerPDFURL.path) {
+            return (customQuestionPDFURL, customAnswerPDFURL)
+        }
+        return nil
     }
 
     func importPDFs(questionURL: URL, answerURL: URL) throws {
@@ -94,7 +119,10 @@ final class QuestionStore {
         answerPDFURL = customAnswerPDFURL
         let data = try JSONEncoder.pretty.encode(imported)
         try data.write(to: bankCacheURL, options: .atomic)
+        try data.write(to: customBankCacheURL, options: .atomic)
         UserDefaults.standard.set(true, forKey: "hasCustomBank")
+        activeBankID = "custom"
+        UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
     }
 
     func importPDF(url: URL) throws {
@@ -109,21 +137,14 @@ final class QuestionStore {
         answerPDFURL = customCombinedPDFURL
         let data = try JSONEncoder.pretty.encode(imported)
         try data.write(to: bankCacheURL, options: .atomic)
+        try data.write(to: customBankCacheURL, options: .atomic)
         UserDefaults.standard.set(true, forKey: "hasCustomBank")
+        activeBankID = "custom"
+        UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
     }
 
     func restoreBundledBank() throws {
-        guard let url = Bundle.main.resourceURL?.appendingPathComponent("BundledQuestionBank.json"),
-              let data = try? Data(contentsOf: url),
-              let bundled = try? JSONDecoder.quiz.decode(QuestionBank.self, from: data),
-              bundled.questions.count == 100 else {
-            throw QuizImportError.invalidQuestionCount(0)
-        }
-        bank = bundled
-        try data.write(to: bankCacheURL, options: .atomic)
-        questionPDFURL = Bundle.main.resourceURL?.appendingPathComponent("2020广东县级真题.pdf")
-        answerPDFURL = Bundle.main.resourceURL?.appendingPathComponent("2020广东县级答案解析.pdf")
-        UserDefaults.standard.set(false, forKey: "hasCustomBank")
+        try activateBank(id: "bundled")
     }
 
     func saveProgress() {

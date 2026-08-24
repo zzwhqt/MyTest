@@ -83,8 +83,9 @@ final class ManagerWindowController: NSWindowController {
         title.font = .systemFont(ofSize: 22, weight: .bold)
         stack.addArrangedSubview(title)
 
-        bankPopup.addItem(withTitle: store.bank?.title ?? "未加载题库")
-        bankPopup.isEnabled = false
+        bankPopup.target = self
+        bankPopup.action = #selector(bankSelectionChanged)
+        refreshBankPopup()
         stack.addArrangedSubview(labeledRow("当前题库", [bankPopup]))
         scoreSummaryLabel.textColor = .secondaryLabelColor
         stack.addArrangedSubview(labeledRow("整卷成绩", [scoreSummaryLabel]))
@@ -393,8 +394,7 @@ final class ManagerWindowController: NSWindowController {
         window?.displayIfNeeded()
         do {
             try store.importPDF(url: combinedPDFURL)
-            bankPopup.removeAllItems()
-            bankPopup.addItem(withTitle: store.bank?.title ?? "已导入题库")
+            refreshBankPopup()
             statusLabel.stringValue = "导入成功：\(store.bank?.questions.count ?? 0) 道题。"
             statusLabel.textColor = .systemGreen
             refreshScoreSummary()
@@ -418,6 +418,34 @@ final class ManagerWindowController: NSWindowController {
         pdfPathLabel.stringValue = pdfs[0].lastPathComponent
         statusLabel.stringValue = "已接收 PDF，正在自动识别并导入…"
         importCombinedPDF()
+    }
+
+    private func refreshBankPopup() {
+        bankPopup.removeAllItems()
+        for choice in store.availableBanks() {
+            bankPopup.addItem(withTitle: choice.title)
+            bankPopup.lastItem?.representedObject = choice.id
+        }
+        if let index = bankPopup.itemArray.firstIndex(where: { ($0.representedObject as? String) == store.activeBankID }) {
+            bankPopup.selectItem(at: index)
+        }
+        bankPopup.isEnabled = bankPopup.numberOfItems > 1
+    }
+
+    @objc private func bankSelectionChanged() {
+        guard let id = bankPopup.selectedItem?.representedObject as? String else { return }
+        do {
+            try store.activateBank(id: id)
+            statusLabel.stringValue = "已切换到题库：\(store.bank?.title ?? "未命名题库")"
+            statusLabel.textColor = .systemGreen
+            refreshScoreSummary()
+            refreshModuleStatistics()
+        } catch {
+            refreshBankPopup()
+            statusLabel.stringValue = "切换题库失败：\(error.localizedDescription)"
+            statusLabel.textColor = .systemRed
+            showAlert(title: "切换题库失败", message: error.localizedDescription)
+        }
     }
 
     @objc private func startQuiz() {
