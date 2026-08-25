@@ -345,6 +345,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
+        panel.delegate = self
 
         ballView.wantsLayer = true
         ballView.layer?.cornerRadius = Self.collapsedSize.width / 2
@@ -640,8 +641,44 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             height: Self.collapsedSize.height
         )
         window.orderOut(nil)
-        ballPanel.setFrame(collapsedFrame, display: true, animate: false)
+        ballPanel.setFrame(constrainedBallFrame(collapsedFrame, preferredScreen: window.screen), display: true, animate: false)
         ballPanel.orderFrontRegardless()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard let movedWindow = notification.object as? NSWindow,
+              movedWindow === ballPanel, isHoverCollapsed else { return }
+        let preferredScreen: NSScreen?
+        if NSEvent.pressedMouseButtons != 0 {
+            preferredScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+        } else {
+            preferredScreen = movedWindow.screen
+        }
+        let constrained = constrainedBallFrame(movedWindow.frame, preferredScreen: preferredScreen)
+        if abs(constrained.minX - movedWindow.frame.minX) > 0.1
+            || abs(constrained.minY - movedWindow.frame.minY) > 0.1 {
+            movedWindow.setFrameOrigin(constrained.origin)
+        }
+    }
+
+    private func constrainedBallFrame(_ frame: NSRect, preferredScreen: NSScreen?) -> NSRect {
+        let screen = preferredScreen ?? screenWithLargestIntersection(for: frame) ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else { return frame }
+        let maximumX = max(visibleFrame.minX, visibleFrame.maxX - frame.width)
+        let maximumY = max(visibleFrame.minY, visibleFrame.maxY - frame.height)
+        return NSRect(
+            x: min(max(frame.minX, visibleFrame.minX), maximumX),
+            y: min(max(frame.minY, visibleFrame.minY), maximumY),
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private func screenWithLargestIntersection(for frame: NSRect) -> NSScreen? {
+        NSScreen.screens.max {
+            $0.visibleFrame.intersection(frame).width * $0.visibleFrame.intersection(frame).height
+                < $1.visibleFrame.intersection(frame).width * $1.visibleFrame.intersection(frame).height
+        }
     }
 
     private func restoreFromHover() {
@@ -806,6 +843,21 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
 
     func collapseForTesting() {
         hideForHover()
+    }
+
+    func verifyCollapsedBallScreenBoundsForTesting() -> Bool {
+        guard let screen = window?.screen ?? NSScreen.main else { return false }
+        hideForHover()
+        guard isHoverCollapsed else { return false }
+        let outsideFrame = NSRect(
+            x: screen.visibleFrame.maxX + 100,
+            y: screen.visibleFrame.maxY + 100,
+            width: Self.collapsedSize.width,
+            height: Self.collapsedSize.height
+        )
+        ballPanel.setFrame(outsideFrame, display: true)
+        ballPanel.setFrame(constrainedBallFrame(ballPanel.frame, preferredScreen: screen), display: true)
+        return screen.visibleFrame.contains(ballPanel.frame)
     }
 
     func showOvertimeForTesting() {

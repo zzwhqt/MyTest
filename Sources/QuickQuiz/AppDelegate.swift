@@ -80,6 +80,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
             }
+            if CommandLine.arguments.contains("--ui-test-ball-bounds") {
+                var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
+                testConfiguration.selectedQuestionIDs = Set(1...10)
+                testConfiguration.hoverHide = true
+                quizController.apply(configuration: testConfiguration, reset: true, persist: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    manager.window?.orderOut(nil)
+                    quizController.showPanel()
+                    let passed = quizController.verifyCollapsedBallScreenBoundsForTesting()
+                    fputs(passed ? "PASS collapsed-ball-inside-screen\n" : "FAIL collapsed-ball-inside-screen\n", passed ? stdout : stderr)
+                    fflush(passed ? stdout : stderr)
+                    NSApp.terminate(nil)
+                }
+            }
             if CommandLine.arguments.contains("--ui-test-overtime") {
                 var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
                 testConfiguration.selectedQuestionIDs = Set(1...10)
