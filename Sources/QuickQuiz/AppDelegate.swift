@@ -102,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     manager.window?.orderOut(nil)
                     quizController.showPanel()
-                    let passed = quizController.verifyBallDisappearsAfterExpansionForTesting()
-                    fputs(passed ? "PASS ball-hidden-after-expansion\n" : "FAIL ball-hidden-after-expansion\n", passed ? stdout : stderr)
+                    let passed = quizController.verifyBallPersistsAndMovesQuizAfterExpansionForTesting()
+                    fputs(passed ? "PASS ball-persists-and-moves-quiz\n" : "FAIL ball-persists-and-moves-quiz\n", passed ? stdout : stderr)
                     fflush(passed ? stdout : stderr)
                     NSApp.terminate(nil)
                 }

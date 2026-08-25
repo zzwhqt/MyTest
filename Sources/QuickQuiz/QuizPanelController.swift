@@ -28,6 +28,9 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var timerStartedAt: Date?
     private var timer: Timer?
     private var suppressPersistenceForTesting = false
+    private var lastBallOrigin: NSPoint?
+    private var isPositioningBall = false
+    private var isMovingQuizFromBall = false
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
@@ -316,7 +319,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidResize(_ notification: Notification) {
-        guard let window, !isHoverCollapsed else { return }
+        guard let resizedWindow = notification.object as? NSWindow,
+              let window, resizedWindow === window, !isHoverCollapsed else { return }
         expandedFrame = window.frame
         stemLabel.invalidateIntrinsicContentSize()
         resultLabel.invalidateIntrinsicContentSize()
@@ -325,6 +329,9 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         rootView.needsLayout = true
         if !imagePreviewOverlay.isHidden, previewScrollView.magnification <= 1.01 {
             layoutPreviewImageToViewport()
+        }
+        if window.isVisible, !isMovingQuizFromBall {
+            positionBallAtExpandedCorner()
         }
     }
 
@@ -369,7 +376,13 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         applyTextAppearance()
         window?.isMovable = !configuration.panelLocked
         window?.isMovableByWindowBackground = !configuration.panelLocked
-        if !configuration.hoverHide { restoreFromHover() }
+        if !configuration.hoverHide {
+            restoreFromHover()
+            hideBallPanel()
+        } else if window?.isVisible == true {
+            positionBallAtExpandedCorner()
+            showBallPanel()
+        }
         rebuildSequence(reset: reset)
     }
 
@@ -602,6 +615,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             store.clearWholePaperSession(for: key)
             activeWholePaperSessionKey = nil
         }
+        hideBallPanel()
         window?.orderOut(nil)
         let controller = SettlementWindowController(questions: sequence, answers: sessionAnswers, configuration: configuration)
         settlementController = controller
@@ -613,6 +627,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             currentIndex += 1
             displayCurrentQuestion()
         } else {
+            hideBallPanel()
             window?.orderOut(nil)
         }
     }
@@ -631,37 +646,65 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func hideForHover() {
         guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
               let window, window.isVisible else { return }
+        guard !ballPanel.frame.contains(NSEvent.mouseLocation) else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
             pauseTimer(persist: true)
         }
         isHoverCollapsed = true
-        let collapsedFrame = NSRect(
+        window.orderOut(nil)
+        showBallPanel()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard let movedWindow = notification.object as? NSWindow else { return }
+        if movedWindow === ballPanel {
+            guard !isPositioningBall else { return }
+            let previousOrigin = lastBallOrigin ?? movedWindow.frame.origin
+            let preferredScreen: NSScreen?
+            if NSEvent.pressedMouseButtons != 0 {
+                preferredScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            } else {
+                preferredScreen = movedWindow.screen
+            }
+            let constrained = constrainedBallFrame(movedWindow.frame, preferredScreen: preferredScreen)
+            if abs(constrained.minX - movedWindow.frame.minX) > 0.1
+                || abs(constrained.minY - movedWindow.frame.minY) > 0.1 {
+                setBallFrame(constrained)
+            }
+            let finalOrigin = constrained.origin
+            lastBallOrigin = finalOrigin
+            guard !isHoverCollapsed, let window, window.isVisible else { return }
+            let delta = NSPoint(x: finalOrigin.x - previousOrigin.x, y: finalOrigin.y - previousOrigin.y)
+            guard abs(delta.x) > 0.01 || abs(delta.y) > 0.01 else { return }
+            isMovingQuizFromBall = true
+            window.setFrameOrigin(NSPoint(x: window.frame.minX + delta.x, y: window.frame.minY + delta.y))
+            expandedFrame = window.frame
+            isMovingQuizFromBall = false
+        } else if movedWindow === window, !isHoverCollapsed {
+            expandedFrame = movedWindow.frame
+            if movedWindow.isVisible, !isMovingQuizFromBall {
+                positionBallAtExpandedCorner()
+            }
+        }
+    }
+
+    private func positionBallAtExpandedCorner() {
+        guard let window else { return }
+        let frame = NSRect(
             x: window.frame.maxX - Self.collapsedSize.width,
             y: window.frame.maxY - Self.collapsedSize.height,
             width: Self.collapsedSize.width,
             height: Self.collapsedSize.height
         )
-        window.orderOut(nil)
-        ballPanel.setFrame(constrainedBallFrame(collapsedFrame, preferredScreen: window.screen), display: true, animate: false)
-        ballPanel.alphaValue = 1
-        ballPanel.orderFrontRegardless()
+        setBallFrame(constrainedBallFrame(frame, preferredScreen: window.screen))
     }
 
-    func windowDidMove(_ notification: Notification) {
-        guard let movedWindow = notification.object as? NSWindow,
-              movedWindow === ballPanel, isHoverCollapsed else { return }
-        let preferredScreen: NSScreen?
-        if NSEvent.pressedMouseButtons != 0 {
-            preferredScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
-        } else {
-            preferredScreen = movedWindow.screen
-        }
-        let constrained = constrainedBallFrame(movedWindow.frame, preferredScreen: preferredScreen)
-        if abs(constrained.minX - movedWindow.frame.minX) > 0.1
-            || abs(constrained.minY - movedWindow.frame.minY) > 0.1 {
-            movedWindow.setFrameOrigin(constrained.origin)
-        }
+    private func setBallFrame(_ frame: NSRect) {
+        isPositioningBall = true
+        ballPanel.setFrame(frame, display: true, animate: false)
+        lastBallOrigin = frame.origin
+        isPositioningBall = false
     }
 
     private func constrainedBallFrame(_ frame: NSRect, preferredScreen: NSScreen?) -> NSRect {
@@ -691,13 +734,28 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func expandFromHover(force: Bool) {
         guard isHoverCollapsed, force || !isVisibilityStateLocked, let window else { return }
         isHoverCollapsed = false
-        hideBallPanel()
-        if let expandedFrame {
-            window.setFrame(expandedFrame, display: true, animate: false)
+        if var frame = expandedFrame {
+            frame.origin = NSPoint(
+                x: ballPanel.frame.maxX - frame.width,
+                y: ballPanel.frame.maxY - frame.height
+            )
+            window.setFrame(frame, display: true, animate: false)
+            expandedFrame = frame
         }
         updateExpandedAppearance()
         window.orderFrontRegardless()
+        showBallPanel()
         startTimerIfNeeded()
+    }
+
+    private func showBallPanel() {
+        guard configuration.hoverHide else {
+            hideBallPanel()
+            return
+        }
+        ballPanel.alphaValue = 1
+        ballPanel.orderFrontRegardless()
+        lastBallOrigin = ballPanel.frame.origin
     }
 
     private func hideBallPanel() {
@@ -719,11 +777,15 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         } else if window.isVisible {
             pauseTimer(persist: true)
             window.orderOut(nil)
+            hideBallPanel()
         } else {
             expandFromHover(force: true)
-            hideBallPanel()
             window.alphaValue = 1
             window.orderFrontRegardless()
+            if !ballPanel.isVisible {
+                positionBallAtExpandedCorner()
+                showBallPanel()
+            }
             startTimerIfNeeded()
         }
     }
@@ -746,7 +808,6 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     func showPanel() {
         expandFromHover(force: true)
         guard let window else { return }
-        hideBallPanel()
         let oldFrame = window.frame
         let defaultFrame = NSRect(
             x: oldFrame.minX,
@@ -758,6 +819,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         expandedFrame = defaultFrame
         window.alphaValue = 1
         window.orderFrontRegardless()
+        positionBallAtExpandedCorner()
+        showBallPanel()
         startTimerIfNeeded()
     }
 
@@ -837,6 +900,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         for (index, question) in sequence.enumerated() {
             sessionAnswers[question.id] = index.isMultiple(of: 3) ? "A" : question.answer
         }
+        hideBallPanel()
         window?.orderOut(nil)
         let controller = SettlementWindowController(
             questions: sequence,
@@ -870,14 +934,25 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         return screen.visibleFrame.contains(ballPanel.frame)
     }
 
-    func verifyBallDisappearsAfterExpansionForTesting() -> Bool {
+    func verifyBallPersistsAndMovesQuizAfterExpansionForTesting() -> Bool {
         hideForHover()
         guard isHoverCollapsed, ballPanel.isVisible else { return false }
+        let collapsedBallOrigin = ballPanel.frame.origin
         expandFromHover(force: true)
-        return !isHoverCollapsed
-            && window?.isVisible == true
-            && ballPanel.isVisible == false
-            && ballPanel.alphaValue == 0
+        guard !isHoverCollapsed,
+              window?.isVisible == true,
+              ballPanel.isVisible,
+              ballPanel.alphaValue == 1,
+              ballPanel.frame.origin == collapsedBallOrigin,
+              let window else { return false }
+        let oldQuizOrigin = window.frame.origin
+        let targetBallOrigin = NSPoint(x: collapsedBallOrigin.x - 10, y: collapsedBallOrigin.y - 10)
+        ballPanel.setFrameOrigin(targetBallOrigin)
+        windowDidMove(Notification(name: NSWindow.didMoveNotification, object: ballPanel))
+        return abs(window.frame.minX - (oldQuizOrigin.x - 10)) < 0.5
+            && abs(window.frame.minY - (oldQuizOrigin.y - 10)) < 0.5
+            && window.isVisible
+            && ballPanel.isVisible
     }
 
     func showOvertimeForTesting() {
