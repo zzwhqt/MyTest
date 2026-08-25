@@ -10,6 +10,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private static let defaultExpandedSize = NSSize(width: 360, height: 390)
     private static let expandedMinimumSize = NSSize(width: 240, height: 180)
     private static let collapsedSize = NSSize(width: 20, height: 20)
+    private static let expandedBallInset: CGFloat = 6
 
     var onCloseToManager: (() -> Void)?
 
@@ -112,8 +113,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         expandedBallView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(expandedBallView, positioned: .above, relativeTo: contentStack)
         NSLayoutConstraint.activate([
-            expandedBallView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            expandedBallView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            expandedBallView.topAnchor.constraint(equalTo: rootView.topAnchor, constant: Self.expandedBallInset),
+            expandedBallView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -Self.expandedBallInset),
             expandedBallView.widthAnchor.constraint(equalToConstant: Self.collapsedSize.width),
             expandedBallView.heightAnchor.constraint(equalToConstant: Self.collapsedSize.height)
         ])
@@ -690,8 +691,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func positionBallAtExpandedCorner() {
         guard let window else { return }
         let frame = NSRect(
-            x: window.frame.maxX - Self.collapsedSize.width,
-            y: window.frame.maxY - Self.collapsedSize.height,
+            x: window.frame.maxX - Self.expandedBallInset - Self.collapsedSize.width,
+            y: window.frame.maxY - Self.expandedBallInset - Self.collapsedSize.height,
             width: Self.collapsedSize.width,
             height: Self.collapsedSize.height
         )
@@ -733,8 +734,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         isHoverCollapsed = false
         if var frame = expandedFrame {
             frame.origin = NSPoint(
-                x: ballPanel.frame.maxX - frame.width,
-                y: ballPanel.frame.maxY - frame.height
+                x: ballPanel.frame.maxX + Self.expandedBallInset - frame.width,
+                y: ballPanel.frame.maxY + Self.expandedBallInset - frame.height
             )
             window.setFrame(frame, display: true, animate: false)
             expandedFrame = frame
