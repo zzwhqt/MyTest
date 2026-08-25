@@ -4,7 +4,9 @@
 
 一款只依赖 macOS 原生 AppKit、PDFKit 和 Carbon 的离线悬浮刷题工具。应用分为可最小化的管理页和独立悬浮答题页。
 
-**[下载轻刷题 0.1.8 macOS DMG 安装包](Releases/轻刷题-0.1.8-macOS.dmg)**
+应用图标使用不透明纯白背景，在浅色和深色桌面主题下均保持一致显示。
+
+**[下载轻刷题 0.1.9 macOS DMG 安装包](Releases/轻刷题-0.1.9-macOS.dmg)**
 
 ## 安装
 
