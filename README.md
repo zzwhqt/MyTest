@@ -6,7 +6,7 @@
 
 应用图标使用圆角纯白底板，四个外角保持透明，在 Dock 中显示为圆润轮廓。
 
-**[下载轻刷题 0.1.10 macOS DMG 安装包](Releases/轻刷题-0.1.10-macOS.dmg)**
+**[下载轻刷题 0.1.11 macOS DMG 安装包](Releases/轻刷题-0.1.11-macOS.dmg)**
 
 ## 安装
 

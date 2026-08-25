@@ -39,7 +39,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private let stemLabel = NSTextField(wrappingLabelWithString: "")
     private let pageImageView = ClickableImageView()
     private let imagePreviewOverlay = NSView()
-    private let previewScrollView = NSScrollView()
+    private let previewScrollView = ZoomableScrollView()
     private let previewImageView = ClickableImageView()
     private let previewCloseButton = NSButton(title: "×", target: nil, action: nil)
     private var previewKeyMonitor: Any?
@@ -234,6 +234,12 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         previewImageView.wantsLayer = true
         previewImageView.layer?.backgroundColor = NSColor.white.cgColor
         previewImageView.onClick = { [weak self] in self?.closeImagePreview() }
+        previewImageView.onMagnify = { [weak self] event in
+            self?.previewScrollView.magnify(with: event)
+        }
+        previewImageView.onScrollWheel = { [weak self] event in
+            self?.previewScrollView.scrollWheel(with: event)
+        }
         previewScrollView.documentView = previewImageView
 
         previewCloseButton.target = self
@@ -792,7 +798,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             pressure: 1
         ) else { return false }
         pageImageView.mouseDown(with: click)
-        previewScrollView.magnification = 2
+        let zoomCenter = NSPoint(x: previewImageView.bounds.midX, y: previewImageView.bounds.midY)
+        previewScrollView.applyMagnification(delta: 1, centeredAt: zoomCenter)
         let zoomWorked = abs(previewScrollView.magnification - 2) < 0.01
         previewScrollView.magnification = 1
         return !imagePreviewOverlay.isHidden
