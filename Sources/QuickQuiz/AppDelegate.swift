@@ -104,6 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NSApp.terminate(nil)
                 }
             }
+            if CommandLine.arguments.contains("--ui-test-image-preview") {
+                var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
+                testConfiguration.hoverHide = false
+                quizController.apply(configuration: testConfiguration, reset: true, persist: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    manager.window?.orderOut(nil)
+                    quizController.showPanel()
+                    let passed = quizController.showImagePreviewForTesting()
+                    fputs(passed ? "PASS image-preview-magnification\n" : "FAIL image-preview-magnification\n", passed ? stdout : stderr)
+                    fflush(passed ? stdout : stderr)
+                }
+            }
             installStatusItem()
             let hotKey = HotKeyManager()
             hotKey.onVisibilityPressed = { [weak self] in self?.panelController?.toggleVisibility() }

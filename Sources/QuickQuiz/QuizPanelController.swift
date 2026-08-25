@@ -37,6 +37,12 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private let closeButton = NSButton(title: "×", target: nil, action: nil)
     private let stemLabel = NSTextField(wrappingLabelWithString: "")
     private let pageImageView = NSImageView()
+    private let imagePreviewOverlay = NSView()
+    private let previewScrollView = NSScrollView()
+    private let previewImageView = NSImageView()
+    private let previewCloseButton = NSButton(title: "×", target: nil, action: nil)
+    private var previewKeyMonitor: Any?
+    private var currentVisualSource: (url: URL, pageIndex: Int)?
     private let optionStack = NSStackView()
     private var optionButtons: [NSButton] = []
     private let resultLabel = NSTextField(wrappingLabelWithString: "")
@@ -150,6 +156,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         pageImageView.wantsLayer = true
         pageImageView.layer?.backgroundColor = NSColor.white.cgColor
         pageImageView.layer?.cornerRadius = 8
+        pageImageView.toolTip = "点击放大图片"
+        pageImageView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openImagePreview)))
         pageImageView.isHidden = true
         documentStack.addArrangedSubview(pageImageView)
         pageImageView.widthAnchor.constraint(equalTo: documentStack.widthAnchor, constant: -14).isActive = true
@@ -191,6 +199,78 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         actionRow.alignment = .centerY
         actionRow.spacing = 10
         contentStack.addArrangedSubview(actionRow)
+
+        buildImagePreview()
+    }
+
+    private func buildImagePreview() {
+        imagePreviewOverlay.translatesAutoresizingMaskIntoConstraints = false
+        imagePreviewOverlay.wantsLayer = true
+        imagePreviewOverlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.92).cgColor
+        imagePreviewOverlay.isHidden = true
+        rootView.addSubview(imagePreviewOverlay, positioned: .above, relativeTo: contentStack)
+        NSLayoutConstraint.activate([
+            imagePreviewOverlay.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            imagePreviewOverlay.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            imagePreviewOverlay.topAnchor.constraint(equalTo: rootView.topAnchor),
+            imagePreviewOverlay.bottomAnchor.constraint(equalTo: rootView.bottomAnchor)
+        ])
+
+        previewScrollView.translatesAutoresizingMaskIntoConstraints = false
+        previewScrollView.drawsBackground = false
+        previewScrollView.borderType = .noBorder
+        previewScrollView.hasVerticalScroller = true
+        previewScrollView.hasHorizontalScroller = true
+        previewScrollView.autohidesScrollers = true
+        previewScrollView.allowsMagnification = true
+        previewScrollView.minMagnification = 1
+        previewScrollView.maxMagnification = 6
+        previewScrollView.wantsLayer = true
+        previewScrollView.layer?.zPosition = 0
+        imagePreviewOverlay.addSubview(previewScrollView)
+
+        previewImageView.imageScaling = .scaleProportionallyUpOrDown
+        previewImageView.wantsLayer = true
+        previewImageView.layer?.backgroundColor = NSColor.white.cgColor
+        previewImageView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(closeImagePreview)))
+        previewScrollView.documentView = previewImageView
+
+        previewCloseButton.target = self
+        previewCloseButton.action = #selector(closeImagePreview)
+        previewCloseButton.isBordered = false
+        previewCloseButton.font = .systemFont(ofSize: 24, weight: .semibold)
+        previewCloseButton.contentTintColor = .white
+        previewCloseButton.toolTip = "关闭图片预览（Esc）"
+        previewCloseButton.wantsLayer = true
+        previewCloseButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+        previewCloseButton.layer?.cornerRadius = 15
+        previewCloseButton.layer?.zPosition = 100
+        previewCloseButton.translatesAutoresizingMaskIntoConstraints = false
+        imagePreviewOverlay.addSubview(previewCloseButton, positioned: .above, relativeTo: previewScrollView)
+
+        let hint = NSTextField(labelWithString: "双指张合缩放 · 双指滑动查看 · 点击图片或按 Esc 关闭")
+        hint.textColor = .white
+        hint.font = .systemFont(ofSize: 11, weight: .medium)
+        hint.alignment = .center
+        hint.wantsLayer = true
+        hint.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
+        hint.layer?.cornerRadius = 5
+        hint.layer?.zPosition = 100
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        imagePreviewOverlay.addSubview(hint, positioned: .above, relativeTo: previewScrollView)
+
+        NSLayoutConstraint.activate([
+            previewScrollView.leadingAnchor.constraint(equalTo: imagePreviewOverlay.leadingAnchor),
+            previewScrollView.trailingAnchor.constraint(equalTo: imagePreviewOverlay.trailingAnchor),
+            previewScrollView.topAnchor.constraint(equalTo: imagePreviewOverlay.topAnchor),
+            previewScrollView.bottomAnchor.constraint(equalTo: imagePreviewOverlay.bottomAnchor),
+            previewCloseButton.topAnchor.constraint(equalTo: imagePreviewOverlay.topAnchor, constant: 8),
+            previewCloseButton.trailingAnchor.constraint(equalTo: imagePreviewOverlay.trailingAnchor, constant: -10),
+            previewCloseButton.widthAnchor.constraint(equalToConstant: 30),
+            previewCloseButton.heightAnchor.constraint(equalToConstant: 30),
+            hint.centerXAnchor.constraint(equalTo: imagePreviewOverlay.centerXAnchor),
+            hint.bottomAnchor.constraint(equalTo: imagePreviewOverlay.bottomAnchor, constant: -8)
+        ])
     }
 
     private func configureWrappingLabel(_ label: NSTextField) {
@@ -207,6 +287,9 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         explanationLabel.invalidateIntrinsicContentSize()
         optionButtons.forEach { $0.invalidateIntrinsicContentSize() }
         rootView.needsLayout = true
+        if !imagePreviewOverlay.isHidden, previewScrollView.magnification <= 1.01 {
+            layoutPreviewImageToViewport()
+        }
     }
 
     private func buildBallWindow() {
@@ -349,6 +432,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func displayCurrentQuestion() {
+        closeImagePreview()
         guard !sequence.isEmpty, currentIndex < sequence.count else { return }
         let question = sequence[currentIndex]
         selectedChoice = sessionAnswers[question.id]
@@ -368,10 +452,46 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
            let document = PDFDocument(url: documentURL),
            let page = document.page(at: question.sourcePage) {
             pageImageView.image = page.thumbnail(of: NSSize(width: 380, height: 500), for: .mediaBox)
+            currentVisualSource = (documentURL, question.sourcePage)
             pageImageView.isHidden = false
         } else {
             pageImageView.image = nil
+            currentVisualSource = nil
             pageImageView.isHidden = true
+        }
+    }
+
+    @objc private func openImagePreview() {
+        guard let source = currentVisualSource,
+              let document = PDFDocument(url: source.url),
+              let page = document.page(at: source.pageIndex) else { return }
+        previewImageView.image = page.thumbnail(of: NSSize(width: 1800, height: 2400), for: .mediaBox)
+        imagePreviewOverlay.isHidden = false
+        rootView.layoutSubtreeIfNeeded()
+        previewScrollView.magnification = 1
+        layoutPreviewImageToViewport()
+        if previewKeyMonitor == nil {
+            previewKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return event }
+                self?.closeImagePreview()
+                return nil
+            }
+        }
+    }
+
+    private func layoutPreviewImageToViewport() {
+        let viewport = previewScrollView.contentView.bounds.size
+        guard viewport.width > 0, viewport.height > 0 else { return }
+        previewImageView.frame = NSRect(origin: .zero, size: viewport)
+    }
+
+    @objc private func closeImagePreview() {
+        imagePreviewOverlay.isHidden = true
+        previewImageView.image = nil
+        previewScrollView.magnification = 1
+        if let previewKeyMonitor {
+            NSEvent.removeMonitor(previewKeyMonitor)
+            self.previewKeyMonitor = nil
         }
     }
 
@@ -443,6 +563,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func closeToManager() {
+        closeImagePreview()
         expandFromHover(force: true)
         pauseTimer(persist: false)
         window?.orderOut(nil)
@@ -452,7 +573,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func hideForHover() {
-        guard !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
+        guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
               let window, window.isVisible else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
@@ -645,5 +766,21 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         let widthStayedFixed = abs(window.frame.width - expectedWidth) < 0.5
         let contentFitsViewport = stemLabel.frame.width <= window.contentView!.bounds.width
         return widthStayedFixed && contentFitsViewport
+    }
+
+    func showImagePreviewForTesting() -> Bool {
+        guard let question = store.bank?.questions.first(where: \.hasVisual) else { return false }
+        sequence = [question]
+        currentIndex = 0
+        displayCurrentQuestion()
+        openImagePreview()
+        previewScrollView.magnification = 2
+        let zoomWorked = abs(previewScrollView.magnification - 2) < 0.01
+        previewScrollView.magnification = 1
+        return !imagePreviewOverlay.isHidden
+            && previewImageView.image != nil
+            && previewScrollView.allowsMagnification
+            && previewScrollView.maxMagnification >= 6
+            && zoomWorked
     }
 }
