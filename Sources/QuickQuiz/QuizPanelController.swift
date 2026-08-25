@@ -28,12 +28,11 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var timerStartedAt: Date?
     private var timer: Timer?
     private var suppressPersistenceForTesting = false
-    private var lastBallOrigin: NSPoint?
     private var isPositioningBall = false
-    private var isMovingQuizFromBall = false
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
+    private let expandedBallView = WindowDragHandleView()
     private let ballView = HoverContentView()
     private var ballPanel: NSPanel!
     private let progressLabel = NSTextField(labelWithString: "")
@@ -103,6 +102,20 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             contentStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             contentStack.topAnchor.constraint(equalTo: rootView.topAnchor),
             contentStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor)
+        ])
+
+        expandedBallView.wantsLayer = true
+        expandedBallView.layer?.cornerRadius = Self.collapsedSize.width / 2
+        expandedBallView.layer?.masksToBounds = true
+        expandedBallView.layer?.zPosition = 200
+        expandedBallView.canDrag = { [weak self] in self?.configuration.panelLocked == false }
+        expandedBallView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(expandedBallView, positioned: .above, relativeTo: contentStack)
+        NSLayoutConstraint.activate([
+            expandedBallView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            expandedBallView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            expandedBallView.widthAnchor.constraint(equalToConstant: Self.collapsedSize.width),
+            expandedBallView.heightAnchor.constraint(equalToConstant: Self.collapsedSize.height)
         ])
 
         progressLabel.font = .systemFont(ofSize: 13, weight: .medium)
@@ -330,9 +343,6 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         if !imagePreviewOverlay.isHidden, previewScrollView.magnification <= 1.01 {
             layoutPreviewImageToViewport()
         }
-        if window.isVisible, !isMovingQuizFromBall {
-            positionBallAtExpandedCorner()
-        }
     }
 
     private func buildBallWindow() {
@@ -358,6 +368,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         ballView.layer?.cornerRadius = Self.collapsedSize.width / 2
         ballView.layer?.masksToBounds = true
         ballView.layer?.backgroundColor = configuration.fontColor.cgColor
+        expandedBallView.layer?.backgroundColor = configuration.fontColor.cgColor
+        expandedBallView.isHidden = !configuration.hoverHide
         ballView.onMouseEnter = { [weak self] in self?.restoreFromHover() }
         panel.contentView = ballView
         ballPanel = panel
@@ -380,8 +392,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             restoreFromHover()
             hideBallPanel()
         } else if window?.isVisible == true {
-            positionBallAtExpandedCorner()
-            showBallPanel()
+            hideBallPanel()
         }
         rebuildSequence(reset: reset)
     }
@@ -646,12 +657,12 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func hideForHover() {
         guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
               let window, window.isVisible else { return }
-        guard !ballPanel.frame.contains(NSEvent.mouseLocation) else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
             pauseTimer(persist: true)
         }
         isHoverCollapsed = true
+        positionBallAtExpandedCorner()
         window.orderOut(nil)
         showBallPanel()
     }
@@ -660,7 +671,6 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         guard let movedWindow = notification.object as? NSWindow else { return }
         if movedWindow === ballPanel {
             guard !isPositioningBall else { return }
-            let previousOrigin = lastBallOrigin ?? movedWindow.frame.origin
             let preferredScreen: NSScreen?
             if NSEvent.pressedMouseButtons != 0 {
                 preferredScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
@@ -672,20 +682,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
                 || abs(constrained.minY - movedWindow.frame.minY) > 0.1 {
                 setBallFrame(constrained)
             }
-            let finalOrigin = constrained.origin
-            lastBallOrigin = finalOrigin
-            guard !isHoverCollapsed, let window, window.isVisible else { return }
-            let delta = NSPoint(x: finalOrigin.x - previousOrigin.x, y: finalOrigin.y - previousOrigin.y)
-            guard abs(delta.x) > 0.01 || abs(delta.y) > 0.01 else { return }
-            isMovingQuizFromBall = true
-            window.setFrameOrigin(NSPoint(x: window.frame.minX + delta.x, y: window.frame.minY + delta.y))
-            expandedFrame = window.frame
-            isMovingQuizFromBall = false
         } else if movedWindow === window, !isHoverCollapsed {
             expandedFrame = movedWindow.frame
-            if movedWindow.isVisible, !isMovingQuizFromBall {
-                positionBallAtExpandedCorner()
-            }
         }
     }
 
@@ -703,7 +701,6 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func setBallFrame(_ frame: NSRect) {
         isPositioningBall = true
         ballPanel.setFrame(frame, display: true, animate: false)
-        lastBallOrigin = frame.origin
         isPositioningBall = false
     }
 
@@ -743,8 +740,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             expandedFrame = frame
         }
         updateExpandedAppearance()
+        hideBallPanel()
         window.orderFrontRegardless()
-        showBallPanel()
         startTimerIfNeeded()
     }
 
@@ -755,7 +752,6 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         }
         ballPanel.alphaValue = 1
         ballPanel.orderFrontRegardless()
-        lastBallOrigin = ballPanel.frame.origin
     }
 
     private func hideBallPanel() {
@@ -782,10 +778,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             expandFromHover(force: true)
             window.alphaValue = 1
             window.orderFrontRegardless()
-            if !ballPanel.isVisible {
-                positionBallAtExpandedCorner()
-                showBallPanel()
-            }
+            hideBallPanel()
             startTimerIfNeeded()
         }
     }
@@ -819,8 +812,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         expandedFrame = defaultFrame
         window.alphaValue = 1
         window.orderFrontRegardless()
-        positionBallAtExpandedCorner()
-        showBallPanel()
+        hideBallPanel()
         startTimerIfNeeded()
     }
 
@@ -941,18 +933,22 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         expandFromHover(force: true)
         guard !isHoverCollapsed,
               window?.isVisible == true,
-              ballPanel.isVisible,
-              ballPanel.alphaValue == 1,
-              ballPanel.frame.origin == collapsedBallOrigin,
+              !expandedBallView.isHidden,
+              expandedBallView.window === window,
+              !ballPanel.isVisible,
               let window else { return false }
+        let expandedHandleOrigin = expandedBallView.convert(NSPoint.zero, to: nil)
+        let handleScreenOrigin = window.convertPoint(toScreen: expandedHandleOrigin)
+        guard abs(handleScreenOrigin.x - collapsedBallOrigin.x) < 0.5,
+              abs(handleScreenOrigin.y - collapsedBallOrigin.y) < 0.5 else { return false }
         let oldQuizOrigin = window.frame.origin
-        let targetBallOrigin = NSPoint(x: collapsedBallOrigin.x - 10, y: collapsedBallOrigin.y - 10)
-        ballPanel.setFrameOrigin(targetBallOrigin)
-        windowDidMove(Notification(name: NSWindow.didMoveNotification, object: ballPanel))
-        return abs(window.frame.minX - (oldQuizOrigin.x - 10)) < 0.5
-            && abs(window.frame.minY - (oldQuizOrigin.y - 10)) < 0.5
+        window.setFrameOrigin(NSPoint(x: oldQuizOrigin.x - 10, y: oldQuizOrigin.y - 10))
+        let movedHandleOrigin = expandedBallView.convert(NSPoint.zero, to: nil)
+        let movedHandleScreenOrigin = window.convertPoint(toScreen: movedHandleOrigin)
+        return abs(movedHandleScreenOrigin.x - (handleScreenOrigin.x - 10)) < 0.5
+            && abs(movedHandleScreenOrigin.y - (handleScreenOrigin.y - 10)) < 0.5
             && window.isVisible
-            && ballPanel.isVisible
+            && !ballPanel.isVisible
     }
 
     func showOvertimeForTesting() {
