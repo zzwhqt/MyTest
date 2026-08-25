@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try QuestionStore.shared.load()
             let quizController = QuizPanelController(store: .shared)
+            if CommandLine.arguments.contains(where: { $0.hasPrefix("--ui-test") }) {
+                quizController.enableUITestingMode()
+            }
             panelController = quizController
             let manager = ManagerWindowController(store: .shared) { [weak quizController] configuration in
                 quizController?.apply(configuration: configuration, reset: true)
@@ -113,6 +116,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     quizController.showPanel()
                     let passed = quizController.showImagePreviewForTesting()
                     fputs(passed ? "PASS image-preview-magnification\n" : "FAIL image-preview-magnification\n", passed ? stdout : stderr)
+                    fflush(passed ? stdout : stderr)
+                }
+            }
+            if CommandLine.arguments.contains("--ui-test-image-click") {
+                var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
+                testConfiguration.hoverHide = false
+                quizController.apply(configuration: testConfiguration, reset: true, persist: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    manager.window?.orderOut(nil)
+                    quizController.showPanel()
+                    let passed = quizController.showVisualQuestionForClickTesting()
+                    fputs(passed ? "PASS visual-question-ready-for-click\n" : "FAIL visual-question-ready-for-click\n", passed ? stdout : stderr)
                     fflush(passed ? stdout : stderr)
                 }
             }

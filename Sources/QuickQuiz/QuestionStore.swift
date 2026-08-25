@@ -78,6 +78,7 @@ final class QuestionStore {
             try? data.write(to: bankCacheURL, options: .atomic)
         }
         UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
+        migrateLegacyRecordsForActiveBank()
     }
 
     private func readBundledBank() -> QuestionBank? {
@@ -123,6 +124,7 @@ final class QuestionStore {
         UserDefaults.standard.set(true, forKey: "hasCustomBank")
         activeBankID = "custom"
         UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
+        migrateLegacyRecordsForActiveBank()
     }
 
     func importPDF(url: URL) throws {
@@ -141,6 +143,7 @@ final class QuestionStore {
         UserDefaults.standard.set(true, forKey: "hasCustomBank")
         activeBankID = "custom"
         UserDefaults.standard.set(activeBankID, forKey: "activeBankID")
+        migrateLegacyRecordsForActiveBank()
     }
 
     func restoreBundledBank() throws {
@@ -239,7 +242,54 @@ final class QuestionStore {
 
     private func bankIdentity() -> String {
         guard let bank else { return "unknown-bank" }
-        return "\(bank.title)|\(bank.importedAt.timeIntervalSince1970)|\(bank.questions.count)"
+        return "\(activeBankID)|\(bank.title)|\(bank.questions.count)"
+    }
+
+    private func migrateLegacyRecordsForActiveBank() {
+        guard let bank else { return }
+        let legacyPrefix = "\(bank.title)|"
+        let stablePrefix = bankIdentity()
+        var sessionsChanged = false
+        for (key, value) in Array(wholePaperSessions) where key.hasPrefix(legacyPrefix) {
+            guard let range = key.range(of: "|questions=") else { continue }
+            let stableKey = stablePrefix + key[range.lowerBound...]
+            if let existing = wholePaperSessions[stableKey] {
+                let existingProgress = (existing.answers.count, existing.currentIndex, existing.elapsedSeconds ?? 0)
+                let legacyProgress = (value.answers.count, value.currentIndex, value.elapsedSeconds ?? 0)
+                if legacyProgress > existingProgress { wholePaperSessions[stableKey] = value }
+            } else {
+                wholePaperSessions[stableKey] = value
+            }
+            sessionsChanged = true
+        }
+        if sessionsChanged { persistWholePaperSessions() }
+
+        var scoresChanged = false
+        for (key, value) in Array(paperScores) where key.hasPrefix(legacyPrefix) {
+            guard let range = key.range(of: "|score-questions=") else { continue }
+            let stableKey = stablePrefix + key[range.lowerBound...]
+            if let existing = paperScores[stableKey] {
+                paperScores[stableKey] = PaperScoreRecord(
+                    lastScore: value.attempts >= existing.attempts ? value.lastScore : existing.lastScore,
+                    bestScore: max(value.bestScore, existing.bestScore),
+                    totalQuestions: value.totalQuestions,
+                    attempts: max(value.attempts, existing.attempts)
+                )
+            } else {
+                paperScores[stableKey] = value
+            }
+            scoresChanged = true
+        }
+        if scoresChanged { persistPaperScores() }
+
+        var statisticsChanged = false
+        for (key, value) in Array(firstAttemptResults) where key.hasPrefix(legacyPrefix) {
+            guard let range = key.range(of: "|question=") else { continue }
+            let stableKey = stablePrefix + key[range.lowerBound...]
+            if firstAttemptResults[stableKey] == nil { firstAttemptResults[stableKey] = value }
+            statisticsChanged = true
+        }
+        if statisticsChanged { persistModuleStatistics() }
     }
 
     private func firstAttemptKey(questionID: Int) -> String {

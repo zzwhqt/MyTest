@@ -27,6 +27,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var wholePaperElapsedSeconds: TimeInterval = 0
     private var timerStartedAt: Date?
     private var timer: Timer?
+    private var suppressPersistenceForTesting = false
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
@@ -36,10 +37,10 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private let timerLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton(title: "×", target: nil, action: nil)
     private let stemLabel = NSTextField(wrappingLabelWithString: "")
-    private let pageImageView = NSImageView()
+    private let pageImageView = ClickableImageView()
     private let imagePreviewOverlay = NSView()
     private let previewScrollView = NSScrollView()
-    private let previewImageView = NSImageView()
+    private let previewImageView = ClickableImageView()
     private let previewCloseButton = NSButton(title: "×", target: nil, action: nil)
     private var previewKeyMonitor: Any?
     private var currentVisualSource: (url: URL, pageIndex: Int)?
@@ -157,7 +158,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         pageImageView.layer?.backgroundColor = NSColor.white.cgColor
         pageImageView.layer?.cornerRadius = 8
         pageImageView.toolTip = "点击放大图片"
-        pageImageView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openImagePreview)))
+        pageImageView.onClick = { [weak self] in self?.openImagePreview() }
         pageImageView.isHidden = true
         documentStack.addArrangedSubview(pageImageView)
         pageImageView.widthAnchor.constraint(equalTo: documentStack.widthAnchor, constant: -14).isActive = true
@@ -232,7 +233,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         previewImageView.imageScaling = .scaleProportionallyUpOrDown
         previewImageView.wantsLayer = true
         previewImageView.layer?.backgroundColor = NSColor.white.cgColor
-        previewImageView.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(closeImagePreview)))
+        previewImageView.onClick = { [weak self] in self?.closeImagePreview() }
         previewScrollView.documentView = previewImageView
 
         previewCloseButton.target = self
@@ -417,7 +418,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func persistWholePaperSession() {
-        guard configuration.judgeMode == .wholePaper,
+        guard !suppressPersistenceForTesting,
+              configuration.judgeMode == .wholePaper,
               let key = activeWholePaperSessionKey,
               !sequence.isEmpty else { return }
         store.saveWholePaperSession(
@@ -722,8 +724,13 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func prepareForApplicationTermination() {
+        guard !suppressPersistenceForTesting else { return }
         pauseTimer(persist: true)
         store.saveProgress()
+    }
+
+    func enableUITestingMode() {
+        suppressPersistenceForTesting = true
     }
 
     func showSettlementForTesting() {
@@ -773,7 +780,18 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         sequence = [question]
         currentIndex = 0
         displayCurrentQuestion()
-        openImagePreview()
+        guard let click = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: pageImageView.bounds.midX, y: pageImageView.bounds.midY),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else { return false }
+        pageImageView.mouseDown(with: click)
         previewScrollView.magnification = 2
         let zoomWorked = abs(previewScrollView.magnification - 2) < 0.01
         previewScrollView.magnification = 1
@@ -782,5 +800,13 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             && previewScrollView.allowsMagnification
             && previewScrollView.maxMagnification >= 6
             && zoomWorked
+    }
+
+    func showVisualQuestionForClickTesting() -> Bool {
+        guard let question = store.bank?.questions.first(where: \.hasVisual) else { return false }
+        sequence = [question]
+        currentIndex = 0
+        displayCurrentQuestion()
+        return !pageImageView.isHidden && pageImageView.image != nil
     }
 }
