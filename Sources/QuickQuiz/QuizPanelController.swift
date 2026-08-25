@@ -361,6 +361,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         if reset {
             isVisibilityStateLocked = false
             expandFromHover(force: true)
+            hideBallPanel()
         }
         if persist { configuration.save() }
         ballView.layer?.backgroundColor = configuration.fontColor.cgColor
@@ -619,6 +620,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     @objc private func closeToManager() {
         closeImagePreview()
         expandFromHover(force: true)
+        hideBallPanel()
         pauseTimer(persist: false)
         window?.orderOut(nil)
         persistWholePaperSession()
@@ -642,6 +644,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         )
         window.orderOut(nil)
         ballPanel.setFrame(constrainedBallFrame(collapsedFrame, preferredScreen: window.screen), display: true, animate: false)
+        ballPanel.alphaValue = 1
         ballPanel.orderFrontRegardless()
     }
 
@@ -688,13 +691,18 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private func expandFromHover(force: Bool) {
         guard isHoverCollapsed, force || !isVisibilityStateLocked, let window else { return }
         isHoverCollapsed = false
-        ballPanel.orderOut(nil)
+        hideBallPanel()
         if let expandedFrame {
             window.setFrame(expandedFrame, display: true, animate: false)
         }
         updateExpandedAppearance()
         window.orderFrontRegardless()
         startTimerIfNeeded()
+    }
+
+    private func hideBallPanel() {
+        ballPanel.alphaValue = 0
+        ballPanel.orderOut(nil)
     }
 
     private func updateExpandedAppearance() {
@@ -707,12 +715,13 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         if isHoverCollapsed, ballPanel.isVisible {
             pauseTimer(persist: true)
-            ballPanel.orderOut(nil)
+            hideBallPanel()
         } else if window.isVisible {
             pauseTimer(persist: true)
             window.orderOut(nil)
         } else {
             expandFromHover(force: true)
+            hideBallPanel()
             window.alphaValue = 1
             window.orderFrontRegardless()
             startTimerIfNeeded()
@@ -737,6 +746,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     func showPanel() {
         expandFromHover(force: true)
         guard let window else { return }
+        hideBallPanel()
         let oldFrame = window.frame
         let defaultFrame = NSRect(
             x: oldFrame.minX,
@@ -858,6 +868,16 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         ballPanel.setFrame(outsideFrame, display: true)
         ballPanel.setFrame(constrainedBallFrame(ballPanel.frame, preferredScreen: screen), display: true)
         return screen.visibleFrame.contains(ballPanel.frame)
+    }
+
+    func verifyBallDisappearsAfterExpansionForTesting() -> Bool {
+        hideForHover()
+        guard isHoverCollapsed, ballPanel.isVisible else { return false }
+        expandFromHover(force: true)
+        return !isHoverCollapsed
+            && window?.isVisible == true
+            && ballPanel.isVisible == false
+            && ballPanel.alphaValue == 0
     }
 
     func showOvertimeForTesting() {
