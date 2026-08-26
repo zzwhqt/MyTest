@@ -54,6 +54,9 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private let resultLabel = NSTextField(wrappingLabelWithString: "")
     private let explanationLabel = NSTextField(wrappingLabelWithString: "")
     private let nextButton = NSButton(title: "下一题", target: nil, action: nil)
+    private let wholePreviousButton = NSButton(title: "‹ 上一题", target: nil, action: nil)
+    private let wholeNextButton = NSButton(title: "下一题 ›", target: nil, action: nil)
+    private let wholeNavigationRow = NSStackView()
 
     init(store: QuestionStore) {
         self.store = store
@@ -214,11 +217,28 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         nextButton.target = self
         nextButton.action = #selector(nextQuestion)
         nextButton.isHidden = true
-        let actionRow = NSStackView(views: [nextButton])
+        wholePreviousButton.target = self
+        wholePreviousButton.action = #selector(previousWholePaperQuestion)
+        wholeNextButton.target = self
+        wholeNextButton.action = #selector(nextWholePaperQuestion)
+        for button in [wholePreviousButton, wholeNextButton] {
+            button.isBordered = false
+            button.font = .systemFont(ofSize: 11, weight: .regular)
+        }
+        wholeNavigationRow.orientation = .horizontal
+        wholeNavigationRow.alignment = .centerY
+        wholeNavigationRow.spacing = 12
+        wholeNavigationRow.addArrangedSubview(wholePreviousButton)
+        wholeNavigationRow.addArrangedSubview(wholeNextButton)
+        wholeNavigationRow.isHidden = true
+        let actionSpacer = NSView()
+        actionSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let actionRow = NSStackView(views: [wholeNavigationRow, actionSpacer, nextButton])
         actionRow.orientation = .horizontal
         actionRow.alignment = .centerY
         actionRow.spacing = 10
         contentStack.addArrangedSubview(actionRow)
+        actionRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -32).isActive = true
 
         buildImagePreview()
     }
@@ -412,6 +432,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         explanationLabel.textColor = color
         explanationLabel.font = .systemFont(ofSize: max(11, size - 2))
         nextButton.contentTintColor = color
+        wholePreviousButton.contentTintColor = color.withAlphaComponent(0.52)
+        wholeNextButton.contentTintColor = color.withAlphaComponent(0.52)
         closeButton.contentTintColor = color
         closeButton.font = .systemFont(ofSize: max(16, size), weight: .medium)
         for button in optionButtons {
@@ -511,6 +533,10 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         resultLabel.stringValue = ""
         explanationLabel.stringValue = ""
         nextButton.isHidden = true
+        let isWholePaper = configuration.judgeMode == .wholePaper
+        wholeNavigationRow.isHidden = !isWholePaper
+        wholePreviousButton.isEnabled = isWholePaper && currentIndex > 0
+        wholeNextButton.isEnabled = isWholePaper && currentIndex + 1 < sequence.count
 
         if question.hasVisual, let documentURL = store.questionPDFURL,
            let document = PDFDocument(url: documentURL),
@@ -642,6 +668,20 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             hideBallPanel()
             window?.orderOut(nil)
         }
+    }
+
+    @objc private func previousWholePaperQuestion() {
+        guard configuration.judgeMode == .wholePaper, currentIndex > 0 else { return }
+        currentIndex -= 1
+        persistWholePaperSession()
+        displayCurrentQuestion()
+    }
+
+    @objc private func nextWholePaperQuestion() {
+        guard configuration.judgeMode == .wholePaper, currentIndex + 1 < sequence.count else { return }
+        currentIndex += 1
+        persistWholePaperSession()
+        displayCurrentQuestion()
     }
 
     @objc private func closeToManager() {
@@ -968,6 +1008,26 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         let widthStayedFixed = abs(window.frame.width - expectedWidth) < 0.5
         let contentFitsViewport = stemLabel.frame.width <= window.contentView!.bounds.width
         return widthStayedFixed && contentFitsViewport
+    }
+
+    func verifyWholePaperNavigationPreservesAnswersForTesting() -> Bool {
+        guard configuration.judgeMode == .wholePaper, sequence.count >= 2 else { return false }
+        currentIndex = 0
+        sessionAnswers = [:]
+        displayCurrentQuestion()
+        optionSelected(optionButtons[0])
+        guard currentIndex == 1, sessionAnswers[sequence[0].id] == "A" else { return false }
+        previousWholePaperQuestion()
+        let restoredFirstAnswer = currentIndex == 0
+            && selectedChoice == "A"
+            && optionButtons[0].state == .on
+            && sessionAnswers[sequence[0].id] == "A"
+        nextWholePaperQuestion()
+        return restoredFirstAnswer
+            && currentIndex == 1
+            && sessionAnswers[sequence[0].id] == "A"
+            && !wholeNavigationRow.isHidden
+            && wholePreviousButton.isEnabled
     }
 
     func showImagePreviewForTesting() -> Bool {
