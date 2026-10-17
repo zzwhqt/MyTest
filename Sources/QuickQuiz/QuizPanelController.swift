@@ -32,6 +32,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var isPositioningBall = false
     private var hasPointerEnteredSinceShown = false
     private var hoverExitGeneration = 0
+    private var hoverHideProtectedUntil = Date.distantPast
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
@@ -525,6 +526,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
 
     private func displayCurrentQuestion() {
         hoverExitGeneration += 1
+        hoverHideProtectedUntil = Date().addingTimeInterval(1.0)
         closeImagePreview()
         guard !sequence.isEmpty, currentIndex < sequence.count else { return }
         let question = sequence[currentIndex]
@@ -711,10 +713,11 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func hideForHover() {
+    private func hideForHover(force: Bool = false) {
         guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
               hasPointerEnteredSinceShown, let window, window.isVisible else { return }
-        guard !window.frame.contains(NSEvent.mouseLocation) else { return }
+        guard force || Date() >= hoverHideProtectedUntil else { return }
+        guard force || !window.frame.contains(NSEvent.mouseLocation) else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
             pauseTimer(persist: true)
@@ -978,7 +981,8 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
 
     func collapseForTesting() {
         hasPointerEnteredSinceShown = true
-        hideForHover()
+        hoverHideProtectedUntil = .distantPast
+        hideForHover(force: true)
     }
 
     func verifyCollapsedBallScreenBoundsForTesting() -> Bool {
@@ -1082,15 +1086,18 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         displayCurrentQuestion()
         let mouse = NSEvent.mouseLocation
         var frame = window.frame
-        frame.origin = NSPoint(x: mouse.x - frame.width / 2, y: mouse.y - frame.height / 2)
+        frame.origin = NSPoint(x: mouse.x + 500, y: mouse.y + 500)
         window.setFrame(frame, display: true)
         hasPointerEnteredSinceShown = true
         nextQuestion()
         hideForHover()
-        return currentIndex == 1
+        let protectedTransition = currentIndex == 1
             && window.isVisible
             && !isHoverCollapsed
             && !stemLabel.stringValue.isEmpty
+        hoverHideProtectedUntil = .distantPast
+        hideForHover()
+        return protectedTransition && isHoverCollapsed && ballPanel.isVisible
     }
 
     func showImagePreviewForTesting() -> Bool {
