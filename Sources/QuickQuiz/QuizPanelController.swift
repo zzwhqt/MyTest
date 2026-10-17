@@ -145,6 +145,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         headerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentStack.addArrangedSubview(header)
+        header.heightAnchor.constraint(equalToConstant: 24).isActive = true
         header.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -32).isActive = true
 
         let scrollView = NSScrollView()
@@ -245,6 +246,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         actionRow.alignment = .centerY
         actionRow.spacing = 10
         contentStack.addArrangedSubview(actionRow)
+        actionRow.heightAnchor.constraint(equalToConstant: 24).isActive = true
         actionRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -32).isActive = true
 
         buildImagePreview()
@@ -557,6 +559,11 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             pageImageView.image = nil
             currentVisualSource = nil
             pageImageView.isHidden = true
+        }
+        rootView.layoutSubtreeIfNeeded()
+        if let scroll = stemLabel.enclosingScrollView {
+            scroll.contentView.scroll(to: .zero)
+            scroll.reflectScrolledClipView(scroll.contentView)
         }
     }
 
@@ -1084,12 +1091,28 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         guard sequence.count >= 2, let window else { return false }
         currentIndex = 0
         displayCurrentQuestion()
+        reveal(question: sequence[0], choice: "A")
+        rootView.layoutSubtreeIfNeeded()
+        let quizScroll = stemLabel.enclosingScrollView!
+        quizScroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, quizScroll.documentView!.bounds.height - quizScroll.contentView.bounds.height)))
+        quizScroll.reflectScrolledClipView(quizScroll.contentView)
         let mouse = NSEvent.mouseLocation
         var frame = window.frame
         frame.origin = NSPoint(x: mouse.x + 500, y: mouse.y + 500)
         window.setFrame(frame, display: true)
         hasPointerEnteredSinceShown = true
         nextQuestion()
+        rootView.layoutSubtreeIfNeeded()
+        let contentHasVisibleArea = quizScroll.contentView.bounds.height > 100
+            && stemLabel.visibleRect.height > 0
+            && abs(quizScroll.contentView.bounds.minY) < 0.5
+        let originalBackground = rootView.layer?.backgroundColor
+        rootView.layer?.backgroundColor = NSColor.white.cgColor
+        if let bitmap = rootView.bitmapImageRepForCachingDisplay(in: rootView.bounds) {
+            rootView.cacheDisplay(in: rootView.bounds, to: bitmap)
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/quickquiz-next-question-regression.png"))
+        }
+        rootView.layer?.backgroundColor = originalBackground
         hideForHover()
         let protectedTransition = currentIndex == 1
             && window.isVisible
@@ -1097,7 +1120,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             && !stemLabel.stringValue.isEmpty
         hoverHideProtectedUntil = .distantPast
         hideForHover()
-        return protectedTransition && isHoverCollapsed && ballPanel.isVisible
+        return protectedTransition && contentHasVisibleArea && isHoverCollapsed && ballPanel.isVisible
     }
 
     func showImagePreviewForTesting() -> Bool {
