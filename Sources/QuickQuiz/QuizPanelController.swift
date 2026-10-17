@@ -31,6 +31,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var suppressPersistenceForTesting = false
     private var isPositioningBall = false
     private var hasPointerEnteredSinceShown = false
+    private var hoverExitGeneration = 0
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
@@ -93,10 +94,11 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         rootView.layer?.cornerRadius = 16
         rootView.layer?.masksToBounds = true
         rootView.onMouseEnter = { [weak self] in
+            self?.hoverExitGeneration += 1
             self?.hasPointerEnteredSinceShown = true
             self?.restoreFromHover()
         }
-        rootView.onMouseExit = { [weak self] in self?.hideForHover() }
+        rootView.onMouseExit = { [weak self] in self?.requestHoverHide() }
         window.contentView = rootView
 
         contentStack.orientation = .vertical
@@ -522,6 +524,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func displayCurrentQuestion() {
+        hoverExitGeneration += 1
         closeImagePreview()
         guard !sequence.isEmpty, currentIndex < sequence.count else { return }
         let question = sequence[currentIndex]
@@ -699,9 +702,19 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         onCloseToManager?()
     }
 
+    private func requestHoverHide() {
+        hoverExitGeneration += 1
+        let requestedGeneration = hoverExitGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self, self.hoverExitGeneration == requestedGeneration else { return }
+            self.hideForHover()
+        }
+    }
+
     private func hideForHover() {
         guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
               hasPointerEnteredSinceShown, let window, window.isVisible else { return }
+        guard !window.frame.contains(NSEvent.mouseLocation) else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
             pauseTimer(persist: true)
@@ -1061,6 +1074,23 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             && !sequence.isEmpty
             && !stemLabel.stringValue.isEmpty
             && optionButtons.contains(where: { !$0.title.isEmpty })
+    }
+
+    func verifyQuestionTransitionStaysVisibleForTesting() -> Bool {
+        guard sequence.count >= 2, let window else { return false }
+        currentIndex = 0
+        displayCurrentQuestion()
+        let mouse = NSEvent.mouseLocation
+        var frame = window.frame
+        frame.origin = NSPoint(x: mouse.x - frame.width / 2, y: mouse.y - frame.height / 2)
+        window.setFrame(frame, display: true)
+        hasPointerEnteredSinceShown = true
+        nextQuestion()
+        hideForHover()
+        return currentIndex == 1
+            && window.isVisible
+            && !isHoverCollapsed
+            && !stemLabel.stringValue.isEmpty
     }
 
     func showImagePreviewForTesting() -> Bool {

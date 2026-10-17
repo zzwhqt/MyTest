@@ -137,6 +137,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NSApp.terminate(nil)
                 }
             }
+            if CommandLine.arguments.contains("--ui-test-question-transition") {
+                var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
+                testConfiguration.selectedQuestionIDs = Set(1...10)
+                testConfiguration.judgeMode = .immediate
+                testConfiguration.hoverHide = true
+                quizController.apply(configuration: testConfiguration, reset: true, persist: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    manager.window?.orderOut(nil)
+                    quizController.showPanel()
+                    let passed = quizController.verifyQuestionTransitionStaysVisibleForTesting()
+                    fputs(passed ? "PASS question-transition-stays-visible\n" : "FAIL question-transition-stays-visible\n", passed ? stdout : stderr)
+                    fflush(passed ? stdout : stderr)
+                    NSApp.terminate(nil)
+                }
+            }
             if CommandLine.arguments.contains("--ui-test-overtime") {
                 var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
                 testConfiguration.selectedQuestionIDs = Set(1...10)
