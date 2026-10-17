@@ -30,6 +30,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     private var timer: Timer?
     private var suppressPersistenceForTesting = false
     private var isPositioningBall = false
+    private var hasPointerEnteredSinceShown = false
 
     private let rootView = HoverContentView()
     private let contentStack = NSStackView()
@@ -91,7 +92,10 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
         rootView.wantsLayer = true
         rootView.layer?.cornerRadius = 16
         rootView.layer?.masksToBounds = true
-        rootView.onMouseEnter = { [weak self] in self?.restoreFromHover() }
+        rootView.onMouseEnter = { [weak self] in
+            self?.hasPointerEnteredSinceShown = true
+            self?.restoreFromHover()
+        }
         rootView.onMouseExit = { [weak self] in self?.hideForHover() }
         window.contentView = rootView
 
@@ -697,7 +701,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
 
     private func hideForHover() {
         guard imagePreviewOverlay.isHidden, !isVisibilityStateLocked, configuration.hoverHide, !isHoverCollapsed,
-              let window, window.isVisible else { return }
+              hasPointerEnteredSinceShown, let window, window.isVisible else { return }
         expandedFrame = window.frame
         if configuration.pauseTimerWhenCollapsed {
             pauseTimer(persist: true)
@@ -842,18 +846,29 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     func showPanel() {
         expandFromHover(force: true)
         guard let window else { return }
+        displayCurrentQuestion()
         let oldFrame = window.frame
-        let defaultFrame = NSRect(
+        var defaultFrame = NSRect(
             x: oldFrame.minX,
             y: oldFrame.maxY - Self.defaultExpandedSize.height,
             width: Self.defaultExpandedSize.width,
             height: Self.defaultExpandedSize.height
         )
+        let targetScreen = screenWithLargestIntersection(for: defaultFrame) ?? NSScreen.main
+        if let targetScreen {
+            let visible = targetScreen.visibleFrame
+            defaultFrame.origin.x = min(max(defaultFrame.minX, visible.minX), max(visible.minX, visible.maxX - defaultFrame.width))
+            defaultFrame.origin.y = min(max(defaultFrame.minY, visible.minY), max(visible.minY, visible.maxY - defaultFrame.height))
+        }
         window.setFrame(defaultFrame, display: true)
         expandedFrame = defaultFrame
+        let mouseInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        hasPointerEnteredSinceShown = rootView.bounds.contains(rootView.convert(mouseInWindow, from: nil))
         window.alphaValue = 1
         window.orderFrontRegardless()
         hideBallPanel()
+        rootView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
         startTimerIfNeeded()
     }
 
@@ -949,12 +964,13 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func collapseForTesting() {
+        hasPointerEnteredSinceShown = true
         hideForHover()
     }
 
     func verifyCollapsedBallScreenBoundsForTesting() -> Bool {
         guard let screen = window?.screen ?? NSScreen.main else { return false }
-        hideForHover()
+        collapseForTesting()
         guard isHoverCollapsed else { return false }
         let outsideFrame = NSRect(
             x: screen.visibleFrame.maxX + 100,
@@ -968,7 +984,7 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func verifyBallPersistsAndMovesQuizAfterExpansionForTesting() -> Bool {
-        hideForHover()
+        collapseForTesting()
         guard isHoverCollapsed, ballPanel.isVisible else { return false }
         let collapsedBallOrigin = ballPanel.frame.origin
         expandFromHover(force: true)
@@ -1028,6 +1044,23 @@ final class QuizPanelController: NSWindowController, NSWindowDelegate {
             && sessionAnswers[sequence[0].id] == "A"
             && !wholeNavigationRow.isHidden
             && wholePreviousButton.isEnabled
+    }
+
+    func verifyImmediateOpeningVisibilityForTesting() -> Bool {
+        guard configuration.judgeMode == .immediate, let window else { return false }
+        let screen = window.screen ?? NSScreen.main
+        window.setFrameOrigin(NSPoint(x: -50_000, y: -50_000))
+        showPanel()
+        let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let isOnScreen = visibleFrame?.intersection(window.frame).isEmpty == false
+        hasPointerEnteredSinceShown = false
+        hideForHover()
+        let resistedPrematureHide = window.isVisible && !isHoverCollapsed
+        return isOnScreen
+            && resistedPrematureHide
+            && !sequence.isEmpty
+            && !stemLabel.stringValue.isEmpty
+            && optionButtons.contains(where: { !$0.title.isEmpty })
     }
 
     func showImagePreviewForTesting() -> Bool {

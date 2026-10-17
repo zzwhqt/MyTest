@@ -123,6 +123,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NSApp.terminate(nil)
                 }
             }
+            if CommandLine.arguments.contains("--ui-test-immediate-visibility") {
+                var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
+                testConfiguration.judgeMode = .immediate
+                testConfiguration.hoverHide = true
+                quizController.apply(configuration: testConfiguration, reset: true, persist: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    manager.window?.orderOut(nil)
+                    quizController.showPanel()
+                    let passed = quizController.verifyImmediateOpeningVisibilityForTesting()
+                    fputs(passed ? "PASS immediate-opening-visible\n" : "FAIL immediate-opening-visible\n", passed ? stdout : stderr)
+                    fflush(passed ? stdout : stderr)
+                    NSApp.terminate(nil)
+                }
+            }
             if CommandLine.arguments.contains("--ui-test-overtime") {
                 var testConfiguration = QuizConfiguration.load(questionCount: QuestionStore.shared.bank?.questions.count ?? 100)
                 testConfiguration.selectedQuestionIDs = Set(1...10)
